@@ -1,0 +1,10 @@
+strcpy((char *)http, (char *)"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n");
+strcat((char *)http, (char *)"<form method=\"POST\">\r\n");
+strcat((char *)http, (char *)"<div>\r\n");
+strcat((char *)http, (char *)"<label for=\"data\">What greeting do you want to say?</label>\r\n");
+strcat((char *)http, (char *)"<input name=\"data\" id=\"data\" value=\"Bruh\" />\r\n");
+strcat((char *)http, (char *)"</div>\r\n");
+strcat((char *)http, (char *)"<div>\r\n");
+strcat((char *)http, (char *)"<button>Send my greetings</button>\r\n");
+strcat((char *)http, (char *)"</div>\r\n");
+strcat((char *)http, (char *)"</form>\r\n");
