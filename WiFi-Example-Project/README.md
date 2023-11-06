@@ -5,6 +5,7 @@ Using a B-L4s5i-iot01a board (the one with more memory):
 - Starts a server
 - Sends HTML webpage
 - Waits for request from client
+- POST and GET requests are printed to UART, as well as server info messages
 
 ## How to make it work
 - Go to the directory where STM32Cube was downloaded, usually looks like C:\Users<name>\STM32Cube\Repository\STM32Cube_FW_L4_V1.18.0\Projects\B-L4S5I-IOT01A\Applications\WiFi
