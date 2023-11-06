@@ -8,3 +8,6 @@
 !*.py
 !*.html
 !*.txt
+!*.pdf
+!*.tex
+!*.png
