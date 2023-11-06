@@ -1,0 +1,9 @@
+#ignore all kind of files
+*
+#except c, h, ioc, py, sfiles
+!*.c
+!*.h
+!*.s
+!*.ioc
+!*.py
+
