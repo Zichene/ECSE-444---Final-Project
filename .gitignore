@@ -1,9 +1,10 @@
 #ignore all kind of files
 *.*
-#except c, h, ioc, py, sfiles
+#except c, h, ioc, py, s, html, txt, files
 !*.c
 !*.h
 !*.s
 !*.ioc
 !*.py
-
+!*.html
+!*.txt
