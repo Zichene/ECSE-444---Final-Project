@@ -12,5 +12,9 @@ Using a B-L4s5i-iot01a board (the one with more memory):
 - Replace existing main.c with this main.c
 - In `wifi_test` function, replace SSID, Password, Security settings with your network settings.
 - If you want to change the HTML displayed, you can use the python script (change the file.html and run main.py to produce a txt file which you can add to the function `SendCustomPage()`).
-- Run and hopefully it works
+- Run the main.c file with STMCubeIDE
+- Connect to a serial terminal, if network credentials are ok it should displayed connected to : IP address
+- Use another device to connect to the same address, you should see a webpage being displayed
+- Look at serial terminal for resquests information
+
 
