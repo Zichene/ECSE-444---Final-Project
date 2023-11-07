@@ -164,17 +164,6 @@ int main(void)
 }
 
 static int wifi_test(void) {
-	// list existing AP points?
-	WIFI_APs_t APs;
-	uint8_t AP_MaxNbr = 10;
-	if (WIFI_STATUS_OK != WIFI_ListAccessPoints(&APs, AP_MaxNbr)) {
-		printf("Could not list access points \r\n");
-	} else {
-	  for (int i = 0; i < APs.count; i++) {
-		printf("%s", APs.ap[i].SSID);
-	  }
-	}
-
 
 	// start the wifi module
 	wifi_start();
