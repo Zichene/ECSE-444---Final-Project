@@ -1,6 +1,7 @@
 # ECSE-444---Final-Project
 Repo for the Final Project for ECSE 444
 ## IMPORTANT
+- For now this repository only contains the main.c files, which are to be copied into (and replace the existing main files) the WiFi example folder in the STM32CubeIDE repository folder (see DOCUMENTATION below).
 - Currently gitignore is set to ignore all files except .c, .h, .s, .py, .ioc, .html, .txt, .tex, .pdf, .png files. If you wish to change this, feel free to modify the .gitignore to include other files. This is so that we only focus on the important files of the project.
 
 ### TODO
