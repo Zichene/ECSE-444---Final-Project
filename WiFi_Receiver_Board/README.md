@@ -1,6 +1,6 @@
 # DOCUMENTATION
 
-This is the main file to be placed in the STMCube32IDE project on the RECEIVING BOARD (B-L4S5I-IOT01A).
+This is the main file to be placed in the STMCube32IDE example Wi-Fi project on the RECEIVING BOARD (B-L4S5I-IOT01A).
 
 ## FUNCTIONALITY
 - On startup, the receiving board connects to a network with credentials `ssid, password, ecn` stored in code. Modify them if your network changes.
