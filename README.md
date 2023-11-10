@@ -2,6 +2,10 @@
 Repo for the Final Project for ECSE 444
 ## IMPORTANT
 - Currently gitignore is set to ignore all files except .c, .h, .s, .py, .ioc, .html, .txt, .tex, .pdf, .png files. If you wish to change this, feel free to modify the .gitignore to include other files. This is so that we only focus on the important files of the project.
+- TODO:
+- Test latency for sending/receiving data between boards
+- Import DFSDM, DAC modules into the project workspaces (make these modules work on our boards, without using an IOC file & CubeMX)
+- Implement rest of features
 
 ## DOCUMENTATION
 
