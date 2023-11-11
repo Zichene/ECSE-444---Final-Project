@@ -13,6 +13,8 @@ password = example_pwd
 security = WPA2_PSK 
 host_ip = 10.0.0.215      # this field is only relevant for the sending board, and you might need to connect with the receiving board first to see what is the IP address
 ```
+NOTE: You can directly modify the .cfg file in STMCube32IDE, and in fact if you have Git installed you can also use the Git terminal to run the python script inside of the IDE!
+
 3. After you found the IP address of the receiving board (by connecting to Wi-Fi with it, and looking at the UART) and modifying all of the config params in the `boards.cfg` file, you can run either: run the `config.py` script or simply run the `config.exe` executable. These scripts take care of generating the header files (.h) containing the config data.
 
 4. Running the config.py script in terminal has the advantage that you will be able to see error messages relating to the script, however the .exe works just fine otherwise.
