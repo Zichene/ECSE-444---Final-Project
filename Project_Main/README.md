@@ -20,3 +20,10 @@ host_ip = 10.0.0.215      # this field is only relevant for the sending board, a
 4. Running the config.py script in terminal has the advantage that you will be able to see error messages relating to the script, however the .exe works just fine otherwise.
    
 5. You can now run the project in STM32CubeIDE!
+
+## SENDING BOARD FUNCTIONALITY
+- On startup, the sending board connects to a network with credentials `ssid, password, ecn` stored in code. Modify them if your network changes.
+- A server is created using `SOCKET = 1, PORT = 10`; these values are also stored in the main file. These settings SHOULD NOT change during the course of the project.
+- The sending board now attempts to connect to the receiving board after being provided with the right IP address of the receiving board (you need to manually enter this). The parameters of the function `wifi_connect_to_board()` are values for the IP address of the receiving board.
+- Now, we can send data to the receiving board using the function `wifi_send_data_to_board(char* data)`. Every data request sent to the receiver board will be responded to: we can see this response in the UART of the sending board.
+
