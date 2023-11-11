@@ -1,4 +1,5 @@
-/*******************************************************************************
+/**
+  ******************************************************************************
   * @file    Wifi/WiFi_HTTP_Server/src/main.c
   * @author  MCD Application Team
   * @brief   This file provides main program functions
@@ -7,6 +8,7 @@
   *
   * Copyright (c) 2017 STMicroelectronics.
   * All rights reserved.
+  *
   * This software is licensed under terms that can be found in the LICENSE file
   * in the root directory of this software component.
   * If no LICENSE file comes with this software, it is provided AS-IS.
@@ -14,9 +16,9 @@
   ******************************************************************************
   */
 /* Includes ------------------------------------------------------------------*/
-
 #include "main.h"
-
+#include "receiving_board_config.h"
+#ifdef RECEIVING_ACTIVE
 #ifdef __ICCARM__
 #include <LowLevelIOInterface.h>
 #endif
@@ -819,5 +821,4 @@ static void Button_ISR(void)
 {
   button_flag++;
 }
-
 #endif
