@@ -165,16 +165,10 @@ int main(void)
 }
 
 static int wifi_test(void) {
-
-
 	// start the wifi module
 	wifi_start();
-
 	// connect to existing AP
-	char* ssid = "Dinowifi";
-	char* password = "shuangdu1976!";
-	uint8_t security = WIFI_ECN_WPA2_PSK;
-	  if (WIFI_Connect(ssid, password, security) == WIFI_STATUS_OK)
+	  if (WIFI_Connect(SSID, PASSWORD, SECURITY) == WIFI_STATUS_OK)
 	  {
 	    if(WIFI_GetIP_Address(IP_Addr, sizeof(IP_Addr)) == WIFI_STATUS_OK)
 	    {
