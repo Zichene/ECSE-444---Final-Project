@@ -1,6 +1,6 @@
 #ignore all kind of files
 *.*
-#except c, h, ioc, py, s, html, txt, files
+#except these extensions
 !*.c
 !*.h
 !*.s
@@ -12,3 +12,4 @@
 !*.tex
 !*.png
 !*.exe
+!*.cfg
