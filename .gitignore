@@ -13,3 +13,5 @@
 !*.png
 !*.exe
 !*.cfg
+!*.project
+!*.cproject
