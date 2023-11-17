@@ -1,0 +1,9 @@
+../Application/User/stm32l4xx_hal_msp.c:67:6:HAL_MspInit	16	static
+../Application/User/stm32l4xx_hal_msp.c:89:6:HAL_DAC_MspInit	48	static
+../Application/User/stm32l4xx_hal_msp.c:141:6:HAL_DAC_MspDeInit	16	static
+../Application/User/stm32l4xx_hal_msp.c:175:6:HAL_DFSDM_FilterMspInit	192	static
+../Application/User/stm32l4xx_hal_msp.c:249:6:HAL_DFSDM_ChannelMspInit	192	static
+../Application/User/stm32l4xx_hal_msp.c:300:6:HAL_DFSDM_FilterMspDeInit	16	static
+../Application/User/stm32l4xx_hal_msp.c:333:6:HAL_DFSDM_ChannelMspDeInit	16	static
+../Application/User/stm32l4xx_hal_msp.c:363:6:HAL_TIM_Base_MspInit	24	static
+../Application/User/stm32l4xx_hal_msp.c:388:6:HAL_TIM_Base_MspDeInit	16	static
