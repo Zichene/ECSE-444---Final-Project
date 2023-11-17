@@ -1,17 +1,17 @@
 #ignore all kind of files
 *.*
 #except these extensions
-!*.c
-!*.h
-!*.s
-!*.ioc
-!*.py
-!*.html
-!*.txt
-!*.pdf
-!*.tex
-!*.png
-!*.exe
-!*.cfg
-!*.project
-!*.cproject
+#!*.c
+#!*.h
+#!*.s
+#!*.ioc
+#!*.py
+#!*.html
+#!*.txt
+#!*.pdf
+#!*.tex
+#!*.png
+#!*.exe
+#!*.cfg
+#!*.project
+#!*.cproject
