@@ -11,5 +11,5 @@ See `Getting DFSDM in WiFi.pdf` for rough steps on how DFSDM & DAC was added to 
 3. See **SETUP** of the `Project_Main` folder to see how to change Wi-Fi & board configurations.
 
 ## TODO
--DFSDM & DAC functionality currently is only available on `receiving_main.c`. Need to change  `sending_main.c` to match this.
--Currently more testing needs to be done on Microphone data acquisition and DAC output
+- DFSDM & DAC functionality currently is only available on `receiving_main.c`. Need to change  `sending_main.c` to match this.
+- Currently more testing needs to be done on Microphone data acquisition and DAC output
