@@ -6,7 +6,7 @@ See `Getting DFSDM in WiFi.pdf` for rough steps on how DFSDM & DAC was added to 
 
 ## SETUP
 
-1. Clone this folder onto your machine.
+1. Clone this folder onto your machine into the `C:\Users\Administrator\STM32Cube\Repository\STM32Cube_FW_L4_V1.18.0\Projects\B-L4S5I-IOT01A\Applications` folder. You may want to (or not) replace the WiFi folder with this folder (it is the essentially the same folder).
 2. Run the `.project` file in the `WiFi_HTTP_Server\STM32CubeIDE` folder with STM32Cube IDE.
 3. See **SETUP** of the `Project_Main` folder to see how to change Wi-Fi & board configurations.
 
