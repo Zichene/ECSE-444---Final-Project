@@ -61,6 +61,8 @@ static  uint8_t http[1024];
 static  uint8_t  IP_Addr[4];
 const uint32_t VOICE_BUFLEN = 5000; // buffer length recording+chime
 static int32_t recordingBuffer[5000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+/** INTERRUPT FLAGS **/
+volatile uint8_t DFSDM_finished = false; // flag
 
 /* Private function prototypes -----------------------------------------------*/
 #if defined (TERMINAL_USE)
@@ -137,13 +139,19 @@ int main(void)
 
 
   BSP_COM_Init(COM1, &hDiscoUart);
-  BSP_TSENSOR_Init();
 
   /* testing mic */
   if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
 	  printf("Failed to get mic data\r\n");
   }
+  while (!DFSDM_finished) {
+  }
+  DFSDM_finished = false;
+  HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
   transformBufferToDAC(recordingBuffer, VOICE_BUFLEN);
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+	  printf("Failed to start DAC");
+  }
 
   printf("****** RECEIVING BOARD Initiating ******\r\n");
 
@@ -703,6 +711,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       break;
     }
   }
+}
+
+void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter) {
+	DFSDM_finished = true;
 }
 
 /**
