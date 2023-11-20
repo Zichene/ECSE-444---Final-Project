@@ -55,6 +55,13 @@ extern UART_HandleTypeDef hDiscoUart;
 static  uint8_t http[1024];
 static  uint8_t  IP_Addr[4];
 static uint8_t RemoteIP_Addr[4]; // address of receiving board
+const uint32_t VOICE_BUFLEN = 5000; // buffer length recording+chime
+static int32_t recordingBuffer[5000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+static uint8_t sendingBuffer[5000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+
+/** INTERRUPT FLAGS **/
+volatile uint8_t DFSDM_finished=false;
+volatile uint8_t buttonPressed=0;
 
 /* Private function prototypes -----------------------------------------------*/
 #if defined (TERMINAL_USE)
@@ -77,6 +84,7 @@ static void MX_DMA_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_DFSDM1_Init(void);
+static void MX_GPIO_Init(void);
 
 
 
@@ -102,6 +110,11 @@ int main(void)
   MX_DAC1_Init();
   MX_TIM2_Init();
   MX_DFSDM1_Init();
+  MX_GPIO_Init();
+
+
+  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+  HAL_TIM_Base_Start_IT(&htim2); // the _IT at the end of fn. means interrupt
 
   /* WIFI Web Server demonstration */
 #if defined (TERMINAL_USE)
@@ -123,6 +136,29 @@ int main(void)
   printf("****** SENDING BOARD Initiating ****** \r\n");
 
 #endif /* TERMINAL_USE */
+
+
+  //Testing
+  //This part below will execute once the pushbutton is pressed
+while(buttonPressed==0){
+}
+  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
+	  printf("Failed to get mic data\r\n");
+  }
+  while (!DFSDM_finished) {
+  }
+  printf("Got mic data\r\n");
+  DFSDM_finished = false;
+  HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
+  transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+	  printf("Failed to start DAC");
+  }
+  buttonPressed==0;
+//Testing End
+
+
+
     while(wifi_connect_to_board(REMOTE_IP_0, REMOTE_IP_1, REMOTE_IP_2, REMOTE_IP_3) != WIFI_STATUS_OK) {
     	printf("Retrying to connect to board ... \r\n");
     }
@@ -132,6 +168,22 @@ int main(void)
     wifi_send_data_to_board("hfsdhfjds");
     wifi_send_data_to_board("kkkkk");
     wifi_send_data_to_board("232242");
+
+    if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
+  	  printf("Failed to get mic data\r\n");
+    }
+    while (!DFSDM_finished) {
+    }
+    DFSDM_finished = false;
+    HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
+    transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
+    if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, sendingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+  	  printf("Failed to start DAC");
+    }
+
+
+    wifi_send_data_to_board(recordingBuffer);
+
 
 }
 
@@ -195,6 +247,8 @@ static int wifi_send_data_to_board(char* data) {
 static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t ip3) {
 	// start wifi module
 	wifi_start();
+
+
 	// connect to existing AP
 	if (WIFI_Connect(SSID, PASSWORD, SECURITY) == WIFI_STATUS_OK)
 	{
@@ -279,6 +333,41 @@ static int wifi_start(void)
 }
 
 /**
+ * Transforms a buffer's values into valid DAC 8bit right aligned values
+ */
+void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t *outputBuffer) {
+	for (int i = 0; i < recording_buffer_length; i++) {
+		int32_t val = buffer[i]; // 24-bit value
+		val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
+		// need to map buffer values to 8bit right alligned values (uint8_t)
+		// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
+		const int16_t MAX_VAL = 2000;
+		const int16_t MIN_VAL = -1500;
+		const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
+
+		// clip buffer values to within [-MIN_VAL, MAX_VAL]
+		if (val <= MIN_VAL) {
+			val = MIN_VAL;
+		}
+		if (val >= MAX_VAL) {
+			val = MAX_VAL;
+		}
+		// scale values up by [-MIN_VAL] to make sure no negatives
+		if (MIN_VAL < 0) {
+			val += (-MIN_VAL);
+		}
+		// now the range of val should be [0, MAX_VAL-MIN_VAL], apply linear function to get DAC val
+		val = round(a*val);
+		if (val >= 0 && val <= 255) {
+			outputBuffer[i] = (uint8_t)val; // change the buffer
+			buffer[i]=val;
+		} else {
+			Error_Handler(); // should not happen
+		}
+	}
+}
+
+/**
   * @brief  System Clock Configuration
   *         The system Clock is configured as follow :
   *            System Clock source            = PLL (MSI)
@@ -332,6 +421,28 @@ static void SystemClock_Config(void)
     /* Initialization Error */
     while(1);
   }
+}
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
 }
 
 #if defined (TERMINAL_USE)
@@ -541,22 +652,41 @@ static void MX_DMA_Init(void)
   * @param  GPIO_Pin: Specifies the port pin connected to corresponding EXTI line.
   * @retval None
   */
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   switch (GPIO_Pin)
   {
-    case (GPIO_PIN_1):
+  case (GPIO_PIN_1):
     {
       SPI_WIFI_ISR();
       break;
     }
+  case (GPIO_PIN_13):
+     {
+      buttonPressed=1;
+        break;
+     }
     default:
     {
       break;
     }
   }
 }
+/*
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	if(GPIO_Pin==GPIO_PIN_1){
+	    SPI_WIFI_ISR();
+	}
+	else if (GPIO_Pin==USER_BUTTON_PIN)
+    {
+     buttonPressed=true;
+    }
+}*/
 
+void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter) {
+	DFSDM_finished = true;
+}
 /**
   * @brief  SPI3 line detection callback.
   * @param  None
