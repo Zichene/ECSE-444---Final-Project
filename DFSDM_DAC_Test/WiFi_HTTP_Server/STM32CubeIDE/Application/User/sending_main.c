@@ -55,9 +55,9 @@ extern UART_HandleTypeDef hDiscoUart;
 static  uint8_t http[1024];
 static  uint8_t  IP_Addr[4];
 static uint8_t RemoteIP_Addr[4]; // address of receiving board
-const uint32_t VOICE_BUFLEN = 5000; // buffer length recording+chime
-static int32_t recordingBuffer[5000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
-static uint8_t sendingBuffer[5000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+const uint32_t VOICE_BUFLEN = 20000; // buffer length recording+chime
+static int32_t recordingBuffer[20000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+static uint8_t sendingBuffer[20000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
 
 /** INTERRUPT FLAGS **/
 volatile uint8_t DFSDM_finished=false;
@@ -86,9 +86,8 @@ static void MX_TIM2_Init(void);
 static void MX_DFSDM1_Init(void);
 static void MX_GPIO_Init(void);
 
-
-
 /* Private functions ---------------------------------------------------------*/
+void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t *outputBuffer);
 /**
   * @brief  Main program
   * @param  None
@@ -113,7 +112,7 @@ int main(void)
   MX_GPIO_Init();
 
 
-  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+  //HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
   HAL_TIM_Base_Start_IT(&htim2); // the _IT at the end of fn. means interrupt
 
   /* WIFI Web Server demonstration */
@@ -133,6 +132,10 @@ int main(void)
 
   BSP_COM_Init(COM1, &hDiscoUart);
 
+  /* resetting buffers */
+  memset(recordingBuffer, 0, 1000*sizeof(int32_t));
+  memset(sendingBuffer, 0, 1000);
+
   printf("****** SENDING BOARD Initiating ****** \r\n");
 
 #endif /* TERMINAL_USE */
@@ -140,6 +143,7 @@ int main(void)
 
   //Testing
   //This part below will execute once the pushbutton is pressed
+  /*
 while(buttonPressed==0){
 }
   if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
@@ -151,12 +155,12 @@ while(buttonPressed==0){
   DFSDM_finished = false;
   HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
   transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, sendingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
 	  printf("Failed to start DAC");
   }
-  buttonPressed==0;
+  buttonPressed=false;
 //Testing End
-
+*/
 
 
     while(wifi_connect_to_board(REMOTE_IP_0, REMOTE_IP_1, REMOTE_IP_2, REMOTE_IP_3) != WIFI_STATUS_OK) {
@@ -164,27 +168,28 @@ while(buttonPressed==0){
     }
     // successfully connected to board
     printf("Closed client connection \r\n");
-    wifi_send_data_to_board("mega balls");
-    wifi_send_data_to_board("hfsdhfjds");
-    wifi_send_data_to_board("kkkkk");
-    wifi_send_data_to_board("232242");
-
-    if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
-  	  printf("Failed to get mic data\r\n");
+    wifi_send_data_to_board("test");
+    printf("Waiting for button press to send mic data.\r\n");
+    while(buttonPressed==false){
     }
-    while (!DFSDM_finished) {
+    buttonPressed = false;
+    while (buttonPressed == false) {
+		if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
+		  printf("Failed to get mic data\r\n");
+		}
+		while (!DFSDM_finished) {
+		}
+		DFSDM_finished = false;
+		HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
+		transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
+
+		if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, sendingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+		  printf("Failed to start DAC");
+		}
+		printf("Sending audio to other board \r\n");
+		wifi_send_data_to_board(sendingBuffer);
     }
-    DFSDM_finished = false;
-    HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
-    transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
-    if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, sendingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
-  	  printf("Failed to start DAC");
-    }
-
-
-    wifi_send_data_to_board(recordingBuffer);
-
-
+    buttonPressed = false;
 }
 
 /**
@@ -196,25 +201,19 @@ static int wifi_send_data_to_board(char* data) {
     	printf("Could not connect to other board \r\n");
     	return -1;
     }
-	char* http_header = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n";
-    strcpy((char *)http, http_header);
-    strcat((char *)http, data);
+    printf("Connected to other board\r\n");
+	//char* http_header = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n";
+    //strcat(http_header, data);
     uint16_t actualSent;
-    /*
-    if (WIFI_SendDataTo(REMOTE_SOCKET, http, sizeof(http), &actualSent, WIFI_WRITE_TIMEOUT, RemoteIP_Addr, REMOTE_PORT)!= WIFI_STATUS_OK) {
-    	printf("ERROR: Could not send data, check remote socket & remote IP \r\n");
-        memset(http, 0, strlen(http_header)+strlen(data));
-    	return -1;
-    } */
-    if (WIFI_SendData(REMOTE_SOCKET, http, sizeof(http),&actualSent, WIFI_WRITE_TIMEOUT) != WIFI_STATUS_OK) {
+    if (WIFI_SendData(REMOTE_SOCKET, data, VOICE_BUFLEN,&actualSent, WIFI_WRITE_TIMEOUT) != WIFI_STATUS_OK) {
     	printf("Could not send data \r\n");
-        memset(http, 0, strlen(http));
+        memset(data, 0, strlen(data));
         return -1;
     }
     printf("Sent out %d bytes\r\n", actualSent);
-    memset(http, 0, strlen(http));
+    memset(data, 0, strlen(data)); // maybe we can remove this
     // wait for resp from receiving board before proceeding
-    uint8_t resp[1000];
+    uint8_t resp[100];
     memset(resp, 0, strlen((char*)resp));
     uint16_t actualReceived;
     /*
@@ -222,11 +221,12 @@ static int wifi_send_data_to_board(char* data) {
 
     }
     */
-    while(WIFI_ReceiveData(REMOTE_SOCKET, resp, 1000, &actualReceived, WIFI_READ_TIMEOUT) != WIFI_STATUS_OK) {
+    /*
+    while(WIFI_ReceiveData(REMOTE_SOCKET, resp, 100, &actualReceived, WIFI_READ_TIMEOUT) != WIFI_STATUS_OK) {
 
     }
     printf("Received response from receiving board: %s\r\n", resp);
-
+    */
     // close connection
     if (WIFI_CloseClientConnection(REMOTE_SOCKET) != WIFI_STATUS_OK) {
     	printf("Could not close client connection \r\n");
@@ -336,15 +336,14 @@ static int wifi_start(void)
  * Transforms a buffer's values into valid DAC 8bit right aligned values
  */
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t *outputBuffer) {
+	// need to map buffer values to 8bit right alligned values (uint8_t)
+	// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
+	const int16_t MAX_VAL = 2000;
+	const int16_t MIN_VAL = -1500;
+	const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
 		val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
-		// need to map buffer values to 8bit right alligned values (uint8_t)
-		// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
-		const int16_t MAX_VAL = 2000;
-		const int16_t MIN_VAL = -1500;
-		const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
-
 		// clip buffer values to within [-MIN_VAL, MAX_VAL]
 		if (val <= MIN_VAL) {
 			val = MIN_VAL;

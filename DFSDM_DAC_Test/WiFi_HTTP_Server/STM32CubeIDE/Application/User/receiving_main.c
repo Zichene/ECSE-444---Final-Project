@@ -346,14 +346,14 @@ static int wifi_start(void)
  * Transforms a buffer's values into valid DAC 8bit right aligned values
  */
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length) {
+	// need to map buffer values to 8bit right alligned values (uint8_t)
+	// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
+	const int16_t MAX_VAL = 2000;
+	const int16_t MIN_VAL = -1500;
+	const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
 		val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
-		// need to map buffer values to 8bit right alligned values (uint8_t)
-		// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
-		const int16_t MAX_VAL = 2000;
-		const int16_t MIN_VAL = -1500;
-		const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 
 		// clip buffer values to within [-MIN_VAL, MAX_VAL]
 		if (val <= MIN_VAL) {
