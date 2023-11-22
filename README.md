@@ -1,17 +1,12 @@
 # ECSE-444---Final-Project 
 Repo for the Final Project for ECSE 444
 
-## CURRENT BRANCH INFO
-This branch is for working on implementing the DAC and Microphone (DFSDM) into the Wi-Fi project.
-*The goal is to be able to read DFSDM & output DAC correctly in the same Wi-Fi project*, once this is accomplished this branch will be merged to main.
-
 ## IMPORTANT
 - For now this repository only contains the main.c files, which are to be copied into (and replace the existing main files) the WiFi example folder in the STM32CubeIDE repository folder (see DOCUMENTATION below).
 - Currently gitignore is set to ignore all files except .c, .h, .s, .py, .ioc, .html, .txt, .tex, .pdf, .png, .exe, .cfg files. If you wish to change this, feel free to modify the .gitignore to include other files. This is so that we only focus on the important files of the project.
 
 ### TODO
 - Test latency for sending/receiving data between boards
-- Import DFSDM, DAC modules into the project workspaces (make these modules work on our boards, without using an IOC file & CubeMX)
 - Implement rest of features
 
 ## DOCUMENTATION
