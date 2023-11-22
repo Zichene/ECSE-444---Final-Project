@@ -1,20 +1,4 @@
-/**
-  ******************************************************************************
-  * @file    Wifi/WiFi_HTTP_Server/src/main.c
-  * @author  MCD Application Team
-  * @brief   This file provides main program functions
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2017 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include <math.h>
@@ -26,21 +10,15 @@
 
 /* Private defines -----------------------------------------------------------*/
 #define PORT           80
-
 #define TERMINAL_USE
-
-
 #define WIFI_WRITE_TIMEOUT 10000
 #define WIFI_READ_TIMEOUT  10000
 #define SOCKET                 0
-
-
 #ifdef  TERMINAL_USE
 #define LOG(a) printf a
 #else
 #define LOG(a)
 #endif
-
 #define SSID_SIZE     100
 #define PASSWORD_SIZE 100
 
@@ -59,8 +37,8 @@ extern UART_HandleTypeDef hDiscoUart;
 
 static  uint8_t http[1024];
 static  uint8_t  IP_Addr[4];
-const uint32_t VOICE_BUFLEN = 5000; // buffer length recording+chime
-static int32_t recordingBuffer[5000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+uint8_t resp[2000];
+
 /** INTERRUPT FLAGS **/
 volatile uint8_t DFSDM_finished = false; // flag
 
@@ -140,19 +118,6 @@ int main(void)
 
   BSP_COM_Init(COM1, &hDiscoUart);
 
-  /* testing mic */
-  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
-	  printf("Failed to get mic data\r\n");
-  }
-  while (!DFSDM_finished) {
-  }
-  DFSDM_finished = false;
-  HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
-  transformBufferToDAC(recordingBuffer, VOICE_BUFLEN);
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
-	  printf("Failed to start DAC");
-  }
-
   printf("****** RECEIVING BOARD Initiating ******\r\n");
 
 #endif /* TERMINAL_USE */
@@ -227,24 +192,11 @@ static WIFI_Status_t ProcessServerTest() {
 	// get the resp
 	WIFI_Status_t ret;
 	uint16_t respLen;
-	static uint8_t resp[1024]; //what happens if the resp is longer than 1024? do we just die?
 	if (WIFI_STATUS_OK == WIFI_ReceiveData(SOCKET, resp, 1000, &respLen, WIFI_READ_TIMEOUT)) {
 		if (respLen > 0) {
-			if (strstr((char*)resp, "POST")) {
-				printf("Received POST req \r\n");
-				printf("Request: %s\r\n", resp);
-				// we need to respond to this request, we will do so by sending the webpage back
-				//SendCustomPage();
-			} else if (strstr((char*)resp, "GET")) {
-				printf("Received GET req \r\n");
-				printf("Request: %s\r\n", resp);
-				// get request => we will just resend the custom page
-				//SendCustomPage();
-			} else {
-				printf("Received other request \r\n");
-				printf("Request: %s\r\n", resp);
-				send_receive_confirmation();
-			}
+			send_receive_confirmation();
+			printf(" \r\nReceived audio");
+			HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, resp, 1000, DAC_ALIGN_8B_R);
 		} else {
 			ret = WIFI_STATUS_ERROR;
 		}
@@ -346,14 +298,14 @@ static int wifi_start(void)
  * Transforms a buffer's values into valid DAC 8bit right aligned values
  */
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length) {
-	// need to map buffer values to 8bit right alligned values (uint8_t)
-	// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
-	const int16_t MAX_VAL = 2000;
-	const int16_t MIN_VAL = -1500;
-	const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
 		val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
+		// need to map buffer values to 8bit right alligned values (uint8_t)
+		// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
+		const int16_t MAX_VAL = 2000;
+		const int16_t MIN_VAL = -1500;
+		const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 
 		// clip buffer values to within [-MIN_VAL, MAX_VAL]
 		if (val <= MIN_VAL) {
