@@ -31,7 +31,8 @@
 #define WIFI_WRITE_TIMEOUT 10000
 #define WIFI_READ_TIMEOUT  10000
 #define SOCKET                 1
-#define VOICE_BUFLEN 20000
+#define SENDING_BUFLEN 1000
+#define RECORDING_BUFLEN 20000
 
 
 #ifdef  TERMINAL_USE
@@ -56,8 +57,8 @@ extern UART_HandleTypeDef hDiscoUart;
 //static  uint8_t http[1024];
 static  uint8_t  IP_Addr[4];
 static uint8_t RemoteIP_Addr[4]; // address of receiving board
-static int32_t recordingBuffer[VOICE_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
-static uint8_t sendingBuffer[VOICE_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+static int32_t recordingBuffer[RECORDING_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+static uint8_t sendingBuffer[RECORDING_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
 
 /** INTERRUPT FLAGS **/
 volatile uint8_t DFSDM_half_finished=false;
@@ -78,7 +79,7 @@ volatile uint8_t buttonPressed=0;
 static void SystemClock_Config(void);
 static int wifi_start(void);
 static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t ip3);
-static int wifi_send_data_to_board(char* data);
+static int wifi_send_data_to_board(uint8_t* data);
 
 /* MX Inits */
 static void MX_DMA_Init(void);
@@ -134,30 +135,30 @@ int main(void)
   BSP_COM_Init(COM1, &hDiscoUart);
 
   /* resetting buffers */
-  memset(recordingBuffer, 0, VOICE_BUFLEN*sizeof(int32_t));
-  memset(sendingBuffer, 0, VOICE_BUFLEN/2);
+  memset(recordingBuffer, 0, RECORDING_BUFLEN*sizeof(int32_t));
+  memset(sendingBuffer, 0, SENDING_BUFLEN);
 
   printf("****** SENDING BOARD Initiating ****** \r\n");
 
 #endif /* TERMINAL_USE */
 
-  /*
-    while(wifi_connect_to_board(REMOTE_IP_0, REMOTE_IP_1, REMOTE_IP_2, REMOTE_IP_3) != WIFI_STATUS_OK) {
-    	printf("Retrying to connect to board ... \r\n");
-    }
-    // successfully connected to board
-    printf("Connected to other board. \r\n");
-    wifi_send_data_to_board("test");
-  */
-  while (true) {
+
+	while(wifi_connect_to_board(REMOTE_IP_0, REMOTE_IP_1, REMOTE_IP_2, REMOTE_IP_3) != WIFI_STATUS_OK) {
+		printf("Retrying to connect to board ... \r\n");
+	}
+	// successfully connected to board
+	printf("Connected to other board. \r\n");
+	//wifi_send_data_to_board("test");
+
+    while (true) {
     printf("Waiting for button press to send mic data.\r\n");
     while(buttonPressed==false){
     	__WFI(); // Waiting for interrupt mode?
     }
     buttonPressed = false;
-    while (buttonPressed == false) {
+    //while (buttonPressed == false) {
     	// IF YOU WANT TO USE THE HALF_FINISHED THING U HAVE TO SET DMA TO CIRCULAR IN hal_msp.c
-    	if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
+    	if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, RECORDING_BUFLEN) != HAL_OK) {
     	  printf("Failed to start DFSDM\r\n");
     	}
     	/*
@@ -181,13 +182,20 @@ int main(void)
 		wifi_send_data_to_board(sendingBuffer);
 		*/
 		/* test playback on this board */
-		transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
-		if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+		transformBufferToDAC(recordingBuffer,RECORDING_BUFLEN, sendingBuffer);
+		if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
 		  printf("Failed to start DAC");
 		}
+
 		printf("Sending audio to other board \r\n");
-		wifi_send_data_to_board(sendingBuffer);
-    }
+
+		uint16_t step = RECORDING_BUFLEN/SENDING_BUFLEN;
+		for (int i = 0 ; i < step; i++) {
+			if(wifi_send_data_to_board(&(sendingBuffer[i*SENDING_BUFLEN])) == WIFI_STATUS_OK) {
+				printf("Sent packet %d\r\n", i);
+			}
+		}
+   // }
     buttonPressed = false;
   }
 }
@@ -195,38 +203,47 @@ int main(void)
 /**
  * This function attempts to sent an HTTP request to the other board, which contains some data.
  */
-static int wifi_send_data_to_board(char* data) {
+static int wifi_send_data_to_board(uint8_t* data) {
 	// first try to connect to the board
+
     if (WIFI_OpenClientConnection(REMOTE_SOCKET, WIFI_TCP_PROTOCOL, "test", RemoteIP_Addr, REMOTE_PORT, PORT) != WIFI_STATUS_OK) {
     	printf("Could not connect to other board \r\n");
     	return -1;
     }
+
     printf("Connected to other board\r\n");
 	//char* http_header = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n";
     //strcat(http_header, data);
-    uint16_t actualSent;
-    if (WIFI_SendData(REMOTE_SOCKET, data, VOICE_BUFLEN,&actualSent, WIFI_WRITE_TIMEOUT) != WIFI_STATUS_OK) {
-    	printf("Could not send data \r\n");
-        memset(data, 0, strlen(data));
-        return -1;
-    }
-    printf("Sent out %d bytes\r\n", actualSent);
-    memset(data, 0, strlen(data)); // maybe we can remove this
-    // wait for resp from receiving board before proceeding
-   /* uint8_t resp[100];
-    memset(resp, 0, strlen((char*)resp));
-    uint16_t actualReceived;
-    while(WIFI_ReceiveDataFrom(REMOTE_SOCKET, resp, 1000, &actualReceived, WIFI_READ_TIMEOUT, RemoteIP_Addr, 7, REMOTE_PORT) != WIFI_STATUS_OK) {
 
+    uint16_t actualSent;
+    /*
+    for (int i = 0; i < 20; i++) {
+    	if (WIFI_SendData(REMOTE_SOCKET, &(data[i*1000]), SENDING_BUFLEN, &actualSent, WIFI_WRITE_TIMEOUT) == WIFI_STATUS_OK) {
+			printf("Sent packet %d \r\n", i);
+			//memset(data, 0, strlen(data));
+			return -1;
+    	}
     }
     */
-    /*
+	if (WIFI_SendData(REMOTE_SOCKET,data, SENDING_BUFLEN, &actualSent, WIFI_WRITE_TIMEOUT) != WIFI_STATUS_OK) {
+		printf("Could not send data \r\n");
+		//memset(data, 0, strlen(data));
+		return -1;
+	}
+
+    //memset(data, 0, strlen(data)); // maybe we can remove this
+    // wait for resp from receiving board before proceeding
+    uint8_t resp[100];
+    memset(resp, 0, strlen((char*)resp));
+    uint16_t actualReceived;
+
     while(WIFI_ReceiveData(REMOTE_SOCKET, resp, 100, &actualReceived, WIFI_READ_TIMEOUT) != WIFI_STATUS_OK) {
 
     }
     printf("Received response from receiving board: %s\r\n", resp);
-    */
+
     // close connection
+
     if (WIFI_CloseClientConnection(REMOTE_SOCKET) != WIFI_STATUS_OK) {
     	printf("Could not close client connection \r\n");
     	return -1;
@@ -271,10 +288,12 @@ static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t 
 	   return -1;
 	}
 	// start server (?)
+
 	if (WIFI_STATUS_OK != WIFI_StartServer(SOCKET, WIFI_TCP_PROTOCOL, 1, "", PORT)) {
 		printf("ERROR: Could not start server \r\n");
 		return -1;
 	}
+
 	// trying to connect to other board using IP addr
     RemoteIP_Addr[0] = ip0;
     RemoteIP_Addr[1] = ip1;
@@ -284,12 +303,14 @@ static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t 
     	printf("Could not connect to other board \r\n");
     	return -1;
     }
+
     // we need to disconnect at the end since we will be reconnecting to send data
     // close connection
     if (WIFI_CloseClientConnection(REMOTE_SOCKET) != WIFI_STATUS_OK) {
     	printf("Could not close client connection \r\n");
     	return -1;
     }
+
     return WIFI_STATUS_OK;
 }
 
