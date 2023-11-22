@@ -31,6 +31,7 @@
 #define WIFI_WRITE_TIMEOUT 10000
 #define WIFI_READ_TIMEOUT  10000
 #define SOCKET                 1
+#define VOICE_BUFLEN 20000
 
 
 #ifdef  TERMINAL_USE
@@ -52,14 +53,14 @@ TIM_HandleTypeDef htim2;
 extern UART_HandleTypeDef hDiscoUart;
 #endif /* TERMINAL_USE */
 
-static  uint8_t http[1024];
+//static  uint8_t http[1024];
 static  uint8_t  IP_Addr[4];
 static uint8_t RemoteIP_Addr[4]; // address of receiving board
-const uint32_t VOICE_BUFLEN = 20000; // buffer length recording+chime
-static int32_t recordingBuffer[20000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
-static uint8_t sendingBuffer[20000]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+static int32_t recordingBuffer[VOICE_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
+static uint8_t sendingBuffer[VOICE_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
 
 /** INTERRUPT FLAGS **/
+volatile uint8_t DFSDM_half_finished=false;
 volatile uint8_t DFSDM_finished=false;
 volatile uint8_t buttonPressed=0;
 
@@ -133,63 +134,62 @@ int main(void)
   BSP_COM_Init(COM1, &hDiscoUart);
 
   /* resetting buffers */
-  memset(recordingBuffer, 0, 1000*sizeof(int32_t));
-  memset(sendingBuffer, 0, 1000);
+  memset(recordingBuffer, 0, VOICE_BUFLEN*sizeof(int32_t));
+  memset(sendingBuffer, 0, VOICE_BUFLEN/2);
 
   printf("****** SENDING BOARD Initiating ****** \r\n");
 
 #endif /* TERMINAL_USE */
 
-
-  //Testing
-  //This part below will execute once the pushbutton is pressed
   /*
-while(buttonPressed==0){
-}
-  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
-	  printf("Failed to get mic data\r\n");
-  }
-  while (!DFSDM_finished) {
-  }
-  printf("Got mic data\r\n");
-  DFSDM_finished = false;
-  HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
-  transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, sendingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
-	  printf("Failed to start DAC");
-  }
-  buttonPressed=false;
-//Testing End
-*/
-
-
     while(wifi_connect_to_board(REMOTE_IP_0, REMOTE_IP_1, REMOTE_IP_2, REMOTE_IP_3) != WIFI_STATUS_OK) {
     	printf("Retrying to connect to board ... \r\n");
     }
     // successfully connected to board
-    printf("Closed client connection \r\n");
+    printf("Connected to other board. \r\n");
     wifi_send_data_to_board("test");
+  */
+  while (true) {
     printf("Waiting for button press to send mic data.\r\n");
     while(buttonPressed==false){
+    	__WFI(); // Waiting for interrupt mode?
     }
     buttonPressed = false;
     while (buttonPressed == false) {
-		if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
-		  printf("Failed to get mic data\r\n");
+    	// IF YOU WANT TO USE THE HALF_FINISHED THING U HAVE TO SET DMA TO CIRCULAR IN hal_msp.c
+    	if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, VOICE_BUFLEN) != HAL_OK) {
+    	  printf("Failed to start DFSDM\r\n");
+    	}
+    	/*
+		while (!DFSDM_half_finished) {
 		}
+		// need to transform only first half
+		printf("DFSDM half finished, sending first half of buffer");
+		DFSDM_half_finished = false;
+		transformBufferToDAC(recordingBuffer, VOICE_BUFLEN/2, sendingBuffer);
+		HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN/2, DAC_ALIGN_8B_R);
+		//wifi_send_data_to_board(sendingBuffer);
+		 */
 		while (!DFSDM_finished) {
 		}
 		DFSDM_finished = false;
-		HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); // not sure how necessary this is
+		HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); //  this is necessary
+		/* Need to transform only the last half*/
+		/*
+		transformBufferToDAC(&(recordingBuffer[VOICE_BUFLEN/2]), VOICE_BUFLEN/2, sendingBuffer);
+		HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, &(recordingBuffer[VOICE_BUFLEN/2]), VOICE_BUFLEN/2, DAC_ALIGN_8B_R);
+		wifi_send_data_to_board(sendingBuffer);
+		*/
+		/* test playback on this board */
 		transformBufferToDAC(recordingBuffer, VOICE_BUFLEN, sendingBuffer);
-
-		if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, sendingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+		if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
 		  printf("Failed to start DAC");
 		}
 		printf("Sending audio to other board \r\n");
 		wifi_send_data_to_board(sendingBuffer);
     }
     buttonPressed = false;
+  }
 }
 
 /**
@@ -213,10 +213,9 @@ static int wifi_send_data_to_board(char* data) {
     printf("Sent out %d bytes\r\n", actualSent);
     memset(data, 0, strlen(data)); // maybe we can remove this
     // wait for resp from receiving board before proceeding
-    uint8_t resp[100];
+   /* uint8_t resp[100];
     memset(resp, 0, strlen((char*)resp));
     uint16_t actualReceived;
-    /*
     while(WIFI_ReceiveDataFrom(REMOTE_SOCKET, resp, 1000, &actualReceived, WIFI_READ_TIMEOUT, RemoteIP_Addr, 7, REMOTE_PORT) != WIFI_STATUS_OK) {
 
     }
@@ -338,8 +337,8 @@ static int wifi_start(void)
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t *outputBuffer) {
 	// need to map buffer values to 8bit right alligned values (uint8_t)
 	// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
-	const int16_t MAX_VAL = 2000;
-	const int16_t MIN_VAL = -1500;
+	const int16_t MAX_VAL = 1000;
+	const int16_t MIN_VAL = -1000;
 	const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
@@ -685,6 +684,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter) {
 	DFSDM_finished = true;
+}
+
+void HAL_DFSDM_FilterRegConvHalfCpltCallback (DFSDM_Filter_HandleTypeDef * hdfsdm_filter) {
+	DFSDM_half_finished = true;
 }
 /**
   * @brief  SPI3 line detection callback.

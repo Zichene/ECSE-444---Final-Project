@@ -56,10 +56,9 @@ volatile uint8_t DFSDM_finished = false; // flag
 #endif /* TERMINAL_USE */
 
 static void SystemClock_Config(void);
-static WIFI_Status_t ProcessServerTest(void);
-static WIFI_Status_t SendCustomPage(void);
+static WIFI_Status_t wifi_process_received_data();
 static int send_receive_confirmation(void);
-static int wifi_test(void);
+static int wifi_wait_data_from_board(void);
 static int wifi_start(void);
 static void Button_ISR(void);
 /* MX Inits */
@@ -123,14 +122,14 @@ int main(void)
 #endif /* TERMINAL_USE */
 
  // wifi_server();
-  wifi_test();
+  wifi_wait_data_from_board();
 
   while (1){
 
   }
 }
 
-static int wifi_test(void) {
+static int wifi_wait_data_from_board(void) {
 	// start the wifi module
 	wifi_start();
 	// connect to existing AP
@@ -175,7 +174,7 @@ static int wifi_test(void) {
 
 		  // process server
 		  printf("Processing server \r\n");
-		  ProcessServerTest();
+		  wifi_process_received_data();
 
 		  // close connection
 		  printf("Closing current connection \r\n");
@@ -188,14 +187,15 @@ static int wifi_test(void) {
 }
 
 
-static WIFI_Status_t ProcessServerTest() {
+static WIFI_Status_t wifi_process_received_data() {
 	// get the resp
 	WIFI_Status_t ret;
 	uint16_t respLen;
 	if (WIFI_STATUS_OK == WIFI_ReceiveData(SOCKET, resp, 1000, &respLen, WIFI_READ_TIMEOUT)) {
 		if (respLen > 0) {
-			send_receive_confirmation();
+			// send_receive_confirmation(); maybe we dont need to send back a confirmation for now
 			printf(" \r\nReceived audio");
+			// need to use uint32_t array
 			HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, resp, 1000, DAC_ALIGN_8B_R);
 		} else {
 			ret = WIFI_STATUS_ERROR;
@@ -204,40 +204,6 @@ static WIFI_Status_t ProcessServerTest() {
 	return WIFI_STATUS_OK;
 }
 
-
-static WIFI_Status_t SendCustomPage() {
-	  uint16_t SentDataLength;
-	  WIFI_Status_t ret;
-	  /* construct web page content */
-	  /*
-	  strcpy((char *)http, (char *)"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n");
-	  strcat((char *)http, (char *)"<html>\r\n<body>\r\n");
-	  strcat((char *)http, (char *)"<title>STM32 Web Server</title>\r\n");
-	  strcat((char *)http, (char *)"<h2>STM32L4S Discovery kit IoT node : Web server using WiFi with STM32</h2>\r\n");
-	  strcat((char *)http, (char *)"<p><form method=\"POST\"><strong>");
-	  strcat((char *)http, (char *)"</strong><p><input type=\"submit\"></form></span>");
-	  strcat((char *)http, (char *)"</body>\r\n</html>\r\n");
-	  */
-	  strcpy((char *)http, (char *)"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n");
-	  strcat((char *)http, (char *)"<form method=\"POST\">\r\n");
-	  strcat((char *)http, (char *)"<div>\r\n");
-	  strcat((char *)http, (char *)"<label for=\"data\">What greeting do you want to say?</label>\r\n");
-	  strcat((char *)http, (char *)"<input name=\"data\" id=\"data\" value=\"Bruh\" />\r\n");
-	  strcat((char *)http, (char *)"</div>\r\n");
-	  strcat((char *)http, (char *)"<div>\r\n");
-	  strcat((char *)http, (char *)"<button>Send my greetings</button>\r\n");
-	  strcat((char *)http, (char *)"</div>\r\n");
-	  strcat((char *)http, (char *)"</form>\r\n");
-	  ret = WIFI_SendData(0, (uint8_t *)http, strlen((char *)http), &SentDataLength, WIFI_WRITE_TIMEOUT);
-
-	  if((ret == WIFI_STATUS_OK) && (SentDataLength != strlen((char *)http)))
-	  {
-	    ret = WIFI_STATUS_ERROR;
-	  }
-	  LOG(("Web page sent out\r\n"));
-	  memset(http, 0, strlen(http)); // erase the values stored in http
-	  return WIFI_STATUS_OK;
-}
 
 static int send_receive_confirmation() {
 	  uint16_t SentDataLength;

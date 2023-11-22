@@ -66,8 +66,8 @@ all: main-build
 main-build: WiFi_HTTP_Server.elf secondary-outputs
 
 # Tool invocations
-WiFi_HTTP_Server.elf WiFi_HTTP_Server.map: $(OBJS) $(USER_OBJS) C:\Users\Administrator\STM32Cube\Repository\STM32Cube_FW_L4_V1.18.0\Projects\B-L4S5I-IOT01A\Applications\WiFi\WiFi_HTTP_Server\STM32CubeIDE\STM32L4S5VITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "WiFi_HTTP_Server.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Administrator\STM32Cube\Repository\STM32Cube_FW_L4_V1.18.0\Projects\B-L4S5I-IOT01A\Applications\WiFi\WiFi_HTTP_Server\STM32CubeIDE\STM32L4S5VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="WiFi_HTTP_Server.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+WiFi_HTTP_Server.elf WiFi_HTTP_Server.map: $(OBJS) $(USER_OBJS) C:\Users\Administrator\STM32Cube\Repository\STM32Cube_FW_L4_V1.18.0\Projects\B-L4S5I-IOT01A\Applications\DFSDM_DAC_Test\WiFi_HTTP_Server\STM32CubeIDE\STM32L4S5VITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "WiFi_HTTP_Server.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Administrator\STM32Cube\Repository\STM32Cube_FW_L4_V1.18.0\Projects\B-L4S5I-IOT01A\Applications\DFSDM_DAC_Test\WiFi_HTTP_Server\STM32CubeIDE\STM32L4S5VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="WiFi_HTTP_Server.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
