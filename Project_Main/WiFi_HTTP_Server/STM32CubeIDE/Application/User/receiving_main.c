@@ -21,8 +21,11 @@
 #endif
 #define SSID_SIZE     100
 #define PASSWORD_SIZE 100
-#define BUFFER_LENGTH 20000
+#define BUFFER_LENGTH 40000
 #define SENDING_LENGTH 1000
+//Default sampling rate is at 10kHz.
+#define SAMPLING_RATE_FACTOR_DAC 10000
+#define CLOCK_DIVIDER_DFSDM 100
 
 /* Private typedef------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
@@ -207,7 +210,7 @@ static WIFI_Status_t wifi_process_received_data() {
 			printf("\r\nReceived Packet #%d\r\n", buffer_index + 1);
 			buffer_index++;
 
-			if(buffer_index == 20){
+			if(buffer_index == BUFFER_LENGTH/SENDING_LENGTH){
 				buffer_index = 0;
 				HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, BUFFER_LENGTH, DAC_ALIGN_8B_R);
 			}
@@ -442,7 +445,7 @@ static void MX_DFSDM1_Init(void)
 	hdfsdm1_channel2.Instance = DFSDM1_Channel2;
 	hdfsdm1_channel2.Init.OutputClock.Activation = ENABLE;
 	hdfsdm1_channel2.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
-	hdfsdm1_channel2.Init.OutputClock.Divider = 50;
+	hdfsdm1_channel2.Init.OutputClock.Divider = CLOCK_DIVIDER_DFSDM;
 	hdfsdm1_channel2.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
 	hdfsdm1_channel2.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
 	hdfsdm1_channel2.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
@@ -487,7 +490,7 @@ static void MX_TIM2_Init(void)
 	htim2.Instance = TIM2;
 	htim2.Init.Prescaler = 0;
 	htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-	htim2.Init.Period = 5000;
+	htim2.Init.Period = SAMPLING_RATE_FACTOR_DAC;
 	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
 	htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
 	if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
