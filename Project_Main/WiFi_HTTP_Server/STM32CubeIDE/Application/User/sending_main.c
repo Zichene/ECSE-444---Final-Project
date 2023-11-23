@@ -20,6 +20,8 @@
 #include "main.h"
 #include <math.h>
 #include "sending_board_config.h"
+#define ARM_MATH_CM4
+#include "arm_math.h"
 
 #ifdef SENDING_ACTIVE
 /* Private defines -----------------------------------------------------------*/
@@ -32,7 +34,8 @@
 #define WIFI_READ_TIMEOUT  10000
 #define SOCKET                 1
 #define SENDING_BUFLEN 1000
-#define RECORDING_BUFLEN 20000
+#define RECORDING_BUFLEN 40000
+#define SAMPLING_RATE_FACTOR 2 // DEFAULT SAMPLING IS AT 20 kHz, a higher factor means a lower sampling rate
 
 
 #ifdef  TERMINAL_USE
@@ -156,7 +159,7 @@ int main(void)
     	__WFI(); // Waiting for interrupt mode?
     }
     buttonPressed = false;
-    //while (buttonPressed == false) {
+   // while (buttonPressed == false) {
     	// IF YOU WANT TO USE THE HALF_FINISHED THING U HAVE TO SET DMA TO CIRCULAR IN hal_msp.c
     	if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, RECORDING_BUFLEN) != HAL_OK) {
     	  printf("Failed to start DFSDM\r\n");
@@ -173,6 +176,7 @@ int main(void)
 		 */
 		while (!DFSDM_finished) {
 		}
+
 		DFSDM_finished = false;
 		HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); //  this is necessary
 		/* Need to transform only the last half*/
@@ -577,7 +581,7 @@ static void MX_DFSDM1_Init(void)
   hdfsdm1_channel2.Instance = DFSDM1_Channel2;
   hdfsdm1_channel2.Init.OutputClock.Activation = ENABLE;
   hdfsdm1_channel2.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
-  hdfsdm1_channel2.Init.OutputClock.Divider = 50;
+  hdfsdm1_channel2.Init.OutputClock.Divider = 50*SAMPLING_RATE_FACTOR; // CHANGED FROM 50 to 100 so that SAMPLING RATE IS 10K
   hdfsdm1_channel2.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
   hdfsdm1_channel2.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
   hdfsdm1_channel2.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
@@ -622,7 +626,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 5000;
+  htim2.Init.Period = 5000*SAMPLING_RATE_FACTOR;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
