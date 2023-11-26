@@ -3,6 +3,7 @@
 #include "main.h"
 #include <math.h>
 #include "receiving_board_config.h"
+#include "arm_math.h"
 #ifdef RECEIVING_ACTIVE
 #ifdef __ICCARM__
 #include <LowLevelIOInterface.h>
@@ -21,7 +22,8 @@
 #endif
 #define SSID_SIZE     100
 #define PASSWORD_SIZE 100
-#define BUFFER_LENGTH 40000
+#define N_FFT 2048
+#define BUFFER_LENGTH 20*N_FFT
 #define SENDING_LENGTH 1000
 //Default sampling rate is at 10kHz.
 #define SAMPLING_RATE_FACTOR_DAC 10000
@@ -36,6 +38,7 @@ DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 DMA_HandleTypeDef hdma_dfsdm1_flt0;
 TIM_HandleTypeDef htim2;
+arm_rfft_fast_instance_f32 S_RFFT_F_I;
 #if defined (TERMINAL_USE)
 extern UART_HandleTypeDef hDiscoUart;
 #endif /* TERMINAL_USE */
@@ -64,10 +67,10 @@ volatile uint8_t DFSDM_finished = false; // flag
 
 static void SystemClock_Config(void);
 static WIFI_Status_t wifi_process_received_data(void);
-static WIFI_Status_t SendCustomPage(void);
 static int send_receive_confirmation(void);
 static int wifi_wait_data_from_board(void);
 static int wifi_start(void);
+static void receiveFFTBlock(uint16_t blockIndex, uint16_t respLen);
 static void Button_ISR(void);
 /* MX Inits */
 static void MX_DMA_Init(void);
@@ -204,13 +207,17 @@ static WIFI_Status_t wifi_process_received_data() {
 			// send_receive_confirmation(); maybe we dont need to send back a confirmation for now
 			printf(" \r\nReceived audio");
 			// need to use uint32_t array
+			/************** CONVERT FFT RECEIVED INTO PROPER uint32_t **************/
+			receiveFFTBlock(buffer_index, respLen);
+			/*
 			for(int i = 0; i < SENDING_LENGTH; i++){
 				play[buffer_index * SENDING_LENGTH + i] = (uint32_t)resp[i];
 			}
+			*/
 			printf("\r\nReceived Packet #%d\r\n", buffer_index + 1);
 			buffer_index++;
 
-			if(buffer_index == BUFFER_LENGTH/SENDING_LENGTH){
+			if(buffer_index == BUFFER_LENGTH/N_FFT){
 				buffer_index = 0;
 				HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, BUFFER_LENGTH, DAC_ALIGN_8B_R);
 			}
@@ -228,7 +235,7 @@ static int send_receive_confirmation() {
 	uint16_t SentDataLength;
 	WIFI_Status_t ret;
 	char* http_header = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nPragma: no-cache\r\n\r\n";
-	char* message = "Message received";
+	char* message = "Message received\r\n";
 	strcpy((char *)http, http_header);
 	strcat((char *)http, message);
 	ret = WIFI_SendData(0, (uint8_t *)http, strlen(http), &SentDataLength, WIFI_WRITE_TIMEOUT);
@@ -310,6 +317,56 @@ void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length) {
 		} else {
 			Error_Handler(); // should not happen
 		}
+	}
+}
+
+/**
+ * Once a block of audio FFT data has been received (received in q7_t format) in [resp]
+ * Convert the q7_t values in resp to float32_t using arm_q7_to_float.
+ * Apply inverse FFT
+ * Rescale values to be in [0, 255] range and int32_t
+ * Store these values in the right place given the blockIndex in the play buffer
+ */
+static void receiveFFTBlock(uint16_t blockIndex, uint16_t respLen) {
+	/* STEP 1: Perform Inverse FFT */
+	float ifftInputBuf[N_FFT];
+	float ifftOutputBuf[N_FFT];
+	memset(ifftInputBuf, 0, N_FFT*sizeof(float)); //SETS everything to 0 since resp has a SMALLER length then ifftInputBuf
+	arm_q7_to_float(resp, ifftInputBuf, respLen);
+	/* Now ifftInputBuf should contain the values in resp along with a long string of zeroes  */
+	if (arm_rfft_fast_init_f32(&S_RFFT_F_I, N_FFT) != ARM_MATH_SUCCESS) {
+		printf("ERROR: Couldn't initialize FFT instance \r\n");
+		return;
+	}
+	/* The last argument to indicate that we want an inverse FFT */
+	arm_rfft_fast_f32(&S_RFFT_F_I, ifftInputBuf, ifftOutputBuf, true);
+
+	/* STEP 2: Convert into [0, 255]*/
+	/* Find maximum and minimum elements of ifftOutputBuf */
+	float min_f = MAXFLOAT;
+	float max_f = -MAXFLOAT;
+	for (int i = 0; i < N_FFT; i++) {
+		float cur = ifftOutputBuf[i];
+		if (cur < min_f)
+			cur = min_f;
+		if (cur > max_f)
+			cur = max_f;
+	}
+	float scalingFactor;
+	if ((max_f - min_f)!= 0) {
+		scalingFactor = (255)/(max_f-min_f);
+	} else {
+		printf("ERROR: Unexpected division by zero in receiveFFTBlock \r\n");
+		return;
+	}
+	uint16_t offset = blockIndex*N_FFT;
+	for (int i = 0; i < N_FFT; i++) {
+		/*[minimum, maximum]  ->  [0, maximum-minimum]*/
+		float cur = ifftOutputBuf[i];
+		cur = cur - min_f;
+		/*[0, maximum-minimum] -> [0, 255]*/
+		cur = cur * scalingFactor;
+		play[offset+i] = (int32_t) roundf(cur);
 	}
 }
 
@@ -667,7 +724,7 @@ static void Button_ISR(void)
 }
 
 void HAL_TIM_PeriodElapsedCallback (TIM_HandleTypeDef *htim) {
-	int test;
+	//int test;
 }
 /**
  * @brief  This function is executed in case of error occurrence.

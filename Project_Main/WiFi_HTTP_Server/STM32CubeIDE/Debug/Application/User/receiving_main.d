@@ -47,7 +47,8 @@ Application/User/receiving_main.o: ../Application/User/receiving_main.c \
  ../../../Common/Inc/es_wifi.h ../../Inc/es_wifi_conf.h \
  ../../../Common/Inc/wifi.h ../../../Common/Inc/es_wifi.h \
  ../../../Common/Inc/es_wifi_io.h ../../Inc/flash.h \
- ../Application/User/receiving_board_config.h
+ ../Application/User/receiving_board_config.h ../../Inc/arm_math.h \
+ ../../../../../../../Drivers/CMSIS/Include/cmsis_compiler.h
 ../../Inc/main.h:
 ../../../../../../../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h:
 ../../Inc/stm32l4xx_hal_conf.h:
@@ -100,3 +101,5 @@ Application/User/receiving_main.o: ../Application/User/receiving_main.c \
 ../../../Common/Inc/es_wifi_io.h:
 ../../Inc/flash.h:
 ../Application/User/receiving_board_config.h:
+../../Inc/arm_math.h:
+../../../../../../../Drivers/CMSIS/Include/cmsis_compiler.h:

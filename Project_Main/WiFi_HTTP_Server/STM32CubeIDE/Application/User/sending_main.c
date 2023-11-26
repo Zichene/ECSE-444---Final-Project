@@ -33,10 +33,14 @@
 #define WIFI_WRITE_TIMEOUT 10000
 #define WIFI_READ_TIMEOUT  10000
 #define SOCKET                 1
-#define SENDING_BUFLEN 1000
-#define RECORDING_BUFLEN 40000
+#define N_DCT 2048
+#define N_FFT 2048
+#define SENDING_BUFLEN N_FFT
+#define RECORDING_BUFLEN (20*N_FFT)
 #define SAMPLING_RATE_FACTOR 2 // DEFAULT SAMPLING IS AT 20 kHz, a higher factor means a lower sampling rate
-
+#define FFT_THRESHOLD_MAG 20
+#define INT_MAX  2147483647
+#define INT_MIN -2147483647
 
 #ifdef  TERMINAL_USE
 #define LOG(a) printf a
@@ -60,9 +64,13 @@ extern UART_HandleTypeDef hDiscoUart;
 //static  uint8_t http[1024];
 static  uint8_t  IP_Addr[4];
 static uint8_t RemoteIP_Addr[4]; // address of receiving board
-static int32_t recordingBuffer[RECORDING_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
-static uint8_t sendingBuffer[RECORDING_BUFLEN]; // sampling rate @ 20 kHz => 2 second of recording and 1 second of space for chime
-
+static int32_t recordingBuffer[RECORDING_BUFLEN];
+static q7_t sendingBuffer[SENDING_BUFLEN];
+arm_dct4_instance_f32 S_DCT4;
+arm_rfft_instance_f32 S_RFFT;
+arm_cfft_radix4_instance_f32 S_CFFT;
+arm_rfft_fast_instance_f32 S_RFFT_F;
+arm_rfft_fast_instance_f32 S_RFFT_F_I;
 /** INTERRUPT FLAGS **/
 volatile uint8_t DFSDM_half_finished=false;
 volatile uint8_t DFSDM_finished=false;
@@ -93,6 +101,7 @@ static void MX_GPIO_Init(void);
 
 /* Private functions ---------------------------------------------------------*/
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t *outputBuffer);
+void computeFFTBlock(uint16_t blockIndex);
 /**
   * @brief  Main program
   * @param  None
@@ -142,6 +151,36 @@ int main(void)
   memset(sendingBuffer, 0, SENDING_BUFLEN);
 
   printf("****** SENDING BOARD Initiating ****** \r\n");
+  /* Initializing DCT-4 */
+  /*
+  if (arm_dct4_init_f32(&S_DCT4, &S_RFFT, &S_CFFT, N_DCT, N_DCT/2, 0.03125) != ARM_MATH_SUCCESS) {
+	  printf("Could not initiate DCT4 \r\n");
+	  return -1;
+  }
+  */
+
+  /* Initializing FFT */
+  if (arm_rfft_fast_init_f32(&S_RFFT_F, N_FFT) != ARM_MATH_SUCCESS) {
+	  printf("Could not initiate FFT \r\n");
+	  return -1;
+  }
+
+
+  /************* TESTING FOR DCT4 **********************/
+
+  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, RECORDING_BUFLEN) != HAL_OK) {
+	  printf("Failed to start DFSDM\r\n");
+  }
+  while (!DFSDM_finished) {
+  }
+  DFSDM_finished = false;
+  computeFFTBlock(5);
+  while(true) {
+
+  }
+
+
+
 
 #endif /* TERMINAL_USE */
 
@@ -186,17 +225,19 @@ int main(void)
 		wifi_send_data_to_board(sendingBuffer);
 		*/
 		/* test playback on this board */
-		transformBufferToDAC(recordingBuffer,RECORDING_BUFLEN, sendingBuffer);
+		//transformBufferToDAC(recordingBuffer,RECORDING_BUFLEN, sendingBuffer);
+		/*
 		if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
 		  printf("Failed to start DAC");
 		}
-
+		*/
 		printf("Sending audio to other board \r\n");
-
 		uint16_t step = RECORDING_BUFLEN/SENDING_BUFLEN;
-		for (int i = 0 ; i < step; i++) {
-			if(wifi_send_data_to_board(&(sendingBuffer[i*SENDING_BUFLEN])) == WIFI_STATUS_OK) {
-				printf("Sent packet %d\r\n", i);
+		for (int blockIndex = 0 ; blockIndex < step; blockIndex++) {
+			// convert block
+			computeFFTBlock(blockIndex);
+			if(wifi_send_data_to_board((uint8_t*)sendingBuffer) == WIFI_STATUS_OK) {
+				printf("Sent packet %d\r\n", blockIndex);
 			}
 		}
    // }
@@ -388,6 +429,116 @@ void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uin
 			Error_Handler(); // should not happen
 		}
 	}
+}
+
+/**
+ * Compute 2048 Point FFT on a block (given by blockIndex) of the recordingBuffer.
+ * Filters out low magnitude freq. components (< FFT_THRESHOLD_MAG)
+ * Transforms resulting FFT buffer into char array to be sent by Wi-Fi.
+ */
+void computeFFTBlock(uint16_t blockIndex) {
+	if (arm_rfft_fast_init_f32(&S_RFFT_F, N_FFT) != ARM_MATH_SUCCESS) {
+		  printf("Could not initiate FFT \r\n");
+		  return -1;
+	}
+
+	if (arm_rfft_fast_init_f32(&S_RFFT_F_I, N_FFT) != ARM_MATH_SUCCESS) {
+		  printf("Could not initiate I_FFT \r\n");
+		  return -1;
+	}
+	float fftInBuffer[N_FFT];
+	float fftOutBuffer[N_FFT];
+	//float dctCoeffs[N_DCT];
+	//float pState[S_DCT4->N]; // this array serves as "cache" for the function DCT4
+	uint16_t offset = blockIndex*(RECORDING_BUFLEN/SENDING_BUFLEN);
+	// converting the recordingBuffer into floats (first 512 elements)
+	int32_t min = INT_MAX;
+	int32_t max = INT_MIN;
+	for (int i = 0; i < N_FFT; i++) {
+		int32_t cur = recordingBuffer[offset+i] >> 8;
+		if (cur < min)
+			min = cur;
+		if (cur > max)
+			max = cur;
+	}
+	// now want to scale [min, max] to [-1, 1]
+	// first scale [min, max] to [0, 2] and then subtract 1 from everything
+	float scaleFactor = (2)/((float)max - (float)min);
+	for (int i = 0; i < N_FFT; i++) {
+		// subtract min from everything
+		float cur = (recordingBuffer[offset+i]>>8)-min;
+		cur = scaleFactor*cur;
+		cur--;
+		fftInBuffer[i] = cur;
+		printf("%f ", cur);
+	}
+
+	// apply FFT
+	arm_rfft_fast_f32(&S_RFFT_F, fftInBuffer, fftOutBuffer, 0);
+	float min_f = MAXFLOAT;
+	float max_f = -MAXFLOAT;
+	// get rid of components whose amplitude is not very high
+	for (int index = 0; index < N_FFT; index+=2) {
+		float curReal = fftOutBuffer[index];
+		float curIm = fftOutBuffer[index+1];
+		float mag = curReal*curReal + curIm*curIm;
+		if (mag < FFT_THRESHOLD_MAG*FFT_THRESHOLD_MAG) {
+			fftOutBuffer[index] = 0;
+			fftOutBuffer[index+1] = 0;
+		}
+		// check for max & min
+		if (curReal < min_f)
+			min_f = curReal;
+		if (curIm < min_f)
+			min_f = curIm;
+		if (curReal > max_f)
+			max_f = curReal;
+		if (curIm > max_f)
+			max_f = curIm;
+	}
+	// find abs val of max_f and min_f
+	max_f = max_f > 0 ? max_f : -1*max_f;
+	min_f = min_f > 0 ? min_f : -1*min_f;
+	// make sure scalefactor != 0
+	if (min_f == 0) {
+		scaleFactor = 1/max_f;
+	} else if (max_f == 0) {
+		scaleFactor = 1/min_f;
+	} else {
+		scaleFactor = max_f > min_f ? 1/max_f : 1/min_f;
+	}
+
+	printf("-------------------- AFTER FFT - FLOAT ---------------------");
+	for (int i = 0; i<SENDING_BUFLEN; i++) {
+		//printf("%f ", fftOutBuffer[i]);
+		fftOutBuffer[i] *= scaleFactor;
+		//printf("%f ", fftOutBuffer[i]);
+	}
+	// converts to q7_t == int8_t
+	arm_float_to_q7(fftOutBuffer, sendingBuffer, SENDING_BUFLEN);
+	/*
+	printf("-------------------- CONVERTED TO Q7_T ---------------------");
+	for (int i = 0; i<SENDING_BUFLEN; i++) {
+		printf("%d ", sendingBuffer[i]);
+	}
+	*/
+
+	/****************** HOW TO CONVERT BACK FROM Q7 BUFFER TO FLOAT *************************/
+
+	arm_q7_to_float(sendingBuffer, fftInBuffer, SENDING_BUFLEN);
+	printf("-------------------- CONVERTED BACK TO FLOAT ---------------------");
+	scaleFactor = 1/scaleFactor;
+	for (int i = 0; i<SENDING_BUFLEN; i++) {
+		printf("%f ", fftInBuffer[i]);
+		//fftInBuffer[i] *= scaleFactor;
+	}
+	// inverse FFT
+	arm_rfft_fast_f32(&S_RFFT_F_I, fftInBuffer, fftOutBuffer, 1);
+	printf("-------------- AFTER IFFT ------------------ \r\n");
+	for (int i = 0; i < N_FFT; i++) {
+		printf("%f ", fftOutBuffer[i]);
+	}
+
 }
 
 /**
