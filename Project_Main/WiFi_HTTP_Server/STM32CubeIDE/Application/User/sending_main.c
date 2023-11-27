@@ -38,6 +38,8 @@
 #define SENDING_BUFLEN N_FFT
 #define RECORDING_BUFLEN (40*N_FFT)
 #define SAMPLING_RATE_FACTOR 2 // DEFAULT SAMPLING IS AT 20 kHz, a higher factor means a lower sampling rate
+#define COMPRESSION_FACTOR 2 // 2x compression
+#define SENDING_BUFLEN_COMPRESSED  SENDING_BUFLEN/COMPRESSION_FACTOR
 #define FFT_THRESHOLD_MAG 500
 #define INT_MAX  2147483647
 #define INT_MIN -2147483647
@@ -171,6 +173,7 @@ int main(void)
 
 
   /************* TESTING FOR DCT4 **********************/
+  /*
 
   if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, RECORDING_BUFLEN) != HAL_OK) {
 	  printf("Failed to start DFSDM\r\n");
@@ -196,6 +199,7 @@ int main(void)
 	  // sendingBuffer will contain result of computeFFTBlock
 	  receiveFFTBlock(sendingBuffer, blockIdx, 500); // ASSUME THAT 500 is the maximum length containing information
   }
+  */
   /*
   printf("------------------ AFTER FFT ------------------------");
   for (int i = 0; i < RECORDING_BUFLEN; i++) {
@@ -203,6 +207,7 @@ int main(void)
   }
   */
   // play
+  /*
   if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
 	  printf("Failed to start DAC");
   }
@@ -211,10 +216,7 @@ int main(void)
   while(true) {
 
   }
-
-
-
-
+  */
 #endif /* TERMINAL_USE */
 
 
@@ -303,11 +305,12 @@ static int wifi_send_data_to_board(uint8_t* data) {
     	}
     }
     */
-	if (WIFI_SendData(REMOTE_SOCKET,data, SENDING_BUFLEN, &actualSent, WIFI_WRITE_TIMEOUT) != WIFI_STATUS_OK) {
+	if (WIFI_SendData(REMOTE_SOCKET,data, SENDING_BUFLEN_COMPRESSED, &actualSent, WIFI_WRITE_TIMEOUT) != WIFI_STATUS_OK) {
 		printf("Could not send data \r\n");
 		//memset(data, 0, strlen(data));
 		return -1;
 	}
+	printf("Data sent: %d\r\n", actualSent);
 
     //memset(data, 0, strlen(data)); // maybe we can remove this
     // wait for resp from receiving board before proceeding
