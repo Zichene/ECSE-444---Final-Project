@@ -34,11 +34,11 @@
 #define WIFI_READ_TIMEOUT  10000
 #define SOCKET                 1
 #define N_DCT 2048
-#define N_FFT 2048
+#define N_FFT 1024
 #define SENDING_BUFLEN N_FFT
-#define RECORDING_BUFLEN (20*N_FFT)
+#define RECORDING_BUFLEN (40*N_FFT)
 #define SAMPLING_RATE_FACTOR 2 // DEFAULT SAMPLING IS AT 20 kHz, a higher factor means a lower sampling rate
-#define FFT_THRESHOLD_MAG 20
+#define FFT_THRESHOLD_MAG 500
 #define INT_MAX  2147483647
 #define INT_MIN -2147483647
 
@@ -65,7 +65,9 @@ extern UART_HandleTypeDef hDiscoUart;
 static  uint8_t  IP_Addr[4];
 static uint8_t RemoteIP_Addr[4]; // address of receiving board
 static int32_t recordingBuffer[RECORDING_BUFLEN];
+static int32_t play[RECORDING_BUFLEN];
 static q7_t sendingBuffer[SENDING_BUFLEN];
+//static float scaleFactor;
 arm_dct4_instance_f32 S_DCT4;
 arm_rfft_instance_f32 S_RFFT;
 arm_cfft_radix4_instance_f32 S_CFFT;
@@ -75,6 +77,7 @@ arm_rfft_fast_instance_f32 S_RFFT_F_I;
 volatile uint8_t DFSDM_half_finished=false;
 volatile uint8_t DFSDM_finished=false;
 volatile uint8_t buttonPressed=0;
+volatile uint8_t DAC_finished = false;
 
 /* Private function prototypes -----------------------------------------------*/
 #if defined (TERMINAL_USE)
@@ -100,8 +103,9 @@ static void MX_DFSDM1_Init(void);
 static void MX_GPIO_Init(void);
 
 /* Private functions ---------------------------------------------------------*/
-void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t *outputBuffer);
+void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t shift);
 void computeFFTBlock(uint16_t blockIndex);
+static void receiveFFTBlock(q7_t *resp, uint16_t blockIndex, uint16_t respLen);
 /**
   * @brief  Main program
   * @param  None
@@ -174,7 +178,36 @@ int main(void)
   while (!DFSDM_finished) {
   }
   DFSDM_finished = false;
-  computeFFTBlock(5);
+  HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); //  this is necessary
+  memcpy(play, recordingBuffer, RECORDING_BUFLEN);
+
+  // go thru every block
+  // convert original signal to DAC
+  transformBufferToDAC(play, RECORDING_BUFLEN, true);
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+	  printf("Failed to start DAC");
+  }
+  while(!DAC_finished) {
+  }
+  DAC_finished = false;
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+  for (int blockIdx = 0; blockIdx < RECORDING_BUFLEN/N_FFT; blockIdx++) {
+	  computeFFTBlock(blockIdx);
+	  // sendingBuffer will contain result of computeFFTBlock
+	  receiveFFTBlock(sendingBuffer, blockIdx, 500); // ASSUME THAT 500 is the maximum length containing information
+  }
+  /*
+  printf("------------------ AFTER FFT ------------------------");
+  for (int i = 0; i < RECORDING_BUFLEN; i++) {
+	  printf("%d ", play[i]);
+  }
+  */
+  // play
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
+	  printf("Failed to start DAC");
+  }
+  //HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+
   while(true) {
 
   }
@@ -400,15 +433,16 @@ static int wifi_start(void)
 /**
  * Transforms a buffer's values into valid DAC 8bit right aligned values
  */
-void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t *outputBuffer) {
+void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t shift) {
 	// need to map buffer values to 8bit right alligned values (uint8_t)
 	// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
 	const int16_t MAX_VAL = 1000;
-	const int16_t MIN_VAL = -1000;
+	const int16_t MIN_VAL = -3000;
 	const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
-		val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
+		if (shift)
+			val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
 		// clip buffer values to within [-MIN_VAL, MAX_VAL]
 		if (val <= MIN_VAL) {
 			val = MIN_VAL;
@@ -423,7 +457,6 @@ void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uin
 		// now the range of val should be [0, MAX_VAL-MIN_VAL], apply linear function to get DAC val
 		val = round(a*val);
 		if (val >= 0 && val <= 255) {
-			outputBuffer[i] = (uint8_t)val; // change the buffer
 			buffer[i]=val;
 		} else {
 			Error_Handler(); // should not happen
@@ -450,8 +483,9 @@ void computeFFTBlock(uint16_t blockIndex) {
 	float fftOutBuffer[N_FFT];
 	//float dctCoeffs[N_DCT];
 	//float pState[S_DCT4->N]; // this array serves as "cache" for the function DCT4
-	uint16_t offset = blockIndex*(RECORDING_BUFLEN/SENDING_BUFLEN);
-	// converting the recordingBuffer into floats (first 512 elements)
+	uint16_t offset = blockIndex*SENDING_BUFLEN;
+	// converting the recordingBuffer into floats (first 2048 elements)
+	/*
 	int32_t min = INT_MAX;
 	int32_t max = INT_MIN;
 	for (int i = 0; i < N_FFT; i++) {
@@ -470,13 +504,20 @@ void computeFFTBlock(uint16_t blockIndex) {
 		cur = scaleFactor*cur;
 		cur--;
 		fftInBuffer[i] = cur;
-		printf("%f ", cur);
+		//printf("%f ", cur);
+	}
+	*/
+	for (int i = 0; i < N_FFT; i++) {
+		fftInBuffer[i] = (float) (recordingBuffer[offset+i]>>8);
+		//printf("%d ", (recordingBuffer[offset+i]>>8));
 	}
 
 	// apply FFT
 	arm_rfft_fast_f32(&S_RFFT_F, fftInBuffer, fftOutBuffer, 0);
+	/*
 	float min_f = MAXFLOAT;
 	float max_f = -MAXFLOAT;
+	*/
 	// get rid of components whose amplitude is not very high
 	for (int index = 0; index < N_FFT; index+=2) {
 		float curReal = fftOutBuffer[index];
@@ -487,6 +528,7 @@ void computeFFTBlock(uint16_t blockIndex) {
 			fftOutBuffer[index+1] = 0;
 		}
 		// check for max & min
+		/*
 		if (curReal < min_f)
 			min_f = curReal;
 		if (curIm < min_f)
@@ -495,7 +537,21 @@ void computeFFTBlock(uint16_t blockIndex) {
 			max_f = curReal;
 		if (curIm > max_f)
 			max_f = curIm;
+		*/
 	}
+	/* Weird pointer trick to store floats inside of a char array, this is needed for wifi */
+	for (int i = 0; i < SENDING_BUFLEN; i++) {
+		sendingBuffer[i] = ((uint8_t*)fftOutBuffer)[i];
+	}
+	/*
+	float *pSendingBufFloat = sendingBuffer;
+	float pfftOut_V2[N_FFT];
+	for (int i = 0; i < SENDING_BUFLEN; i++) {
+		pfftOut_V2[i] = ((float*)sendingBuffer)[i];
+	}
+	*/
+	//sendingBuffer = fftOutBuffer;
+	/*
 	// find abs val of max_f and min_f
 	max_f = max_f > 0 ? max_f : -1*max_f;
 	min_f = min_f > 0 ? min_f : -1*min_f;
@@ -508,14 +564,15 @@ void computeFFTBlock(uint16_t blockIndex) {
 		scaleFactor = max_f > min_f ? 1/max_f : 1/min_f;
 	}
 
-	printf("-------------------- AFTER FFT - FLOAT ---------------------");
+	//printf("-------------------- AFTER FFT - FLOAT ---------------------");
 	for (int i = 0; i<SENDING_BUFLEN; i++) {
 		//printf("%f ", fftOutBuffer[i]);
 		fftOutBuffer[i] *= scaleFactor;
 		//printf("%f ", fftOutBuffer[i]);
 	}
 	// converts to q7_t == int8_t
-	arm_float_to_q7(fftOutBuffer, sendingBuffer, SENDING_BUFLEN);
+	//arm_float_to_q15(fftOutBuffer, sendingBuffer, SENDING_BUFLEN);
+
 	/*
 	printf("-------------------- CONVERTED TO Q7_T ---------------------");
 	for (int i = 0; i<SENDING_BUFLEN; i++) {
@@ -523,14 +580,18 @@ void computeFFTBlock(uint16_t blockIndex) {
 	}
 	*/
 
+	printf("\r\n Length of fftOutBuffer for index %d: %d\r\n", blockIndex, strlen((char*)sendingBuffer));
+
 	/****************** HOW TO CONVERT BACK FROM Q7 BUFFER TO FLOAT *************************/
 
-	arm_q7_to_float(sendingBuffer, fftInBuffer, SENDING_BUFLEN);
+
+	//arm_q7_to_float(sendingBuffer, fftInBuffer, SENDING_BUFLEN);
+	/*
 	printf("-------------------- CONVERTED BACK TO FLOAT ---------------------");
 	scaleFactor = 1/scaleFactor;
 	for (int i = 0; i<SENDING_BUFLEN; i++) {
 		printf("%f ", fftInBuffer[i]);
-		//fftInBuffer[i] *= scaleFactor;
+		fftInBuffer[i] *= scaleFactor;
 	}
 	// inverse FFT
 	arm_rfft_fast_f32(&S_RFFT_F_I, fftInBuffer, fftOutBuffer, 1);
@@ -538,7 +599,76 @@ void computeFFTBlock(uint16_t blockIndex) {
 	for (int i = 0; i < N_FFT; i++) {
 		printf("%f ", fftOutBuffer[i]);
 	}
+	*/
 
+}
+
+/**
+ * Once a block of audio FFT data has been received (received in q7_t format) in [resp]
+ * Convert the q7_t values in resp to float32_t using arm_q7_to_float.
+ * Apply inverse FFT
+ * Rescale values to be in [0, 255] range and int32_t
+ * Store these values in the right place given the blockIndex in the play buffer
+ */
+static void receiveFFTBlock(q7_t *resp, uint16_t blockIndex, uint16_t respLen) {
+	/* STEP 1: Perform Inverse FFT */
+	float ifftInputBuf[N_FFT];
+	float ifftOutputBuf[N_FFT];
+	memset(ifftInputBuf, 0, N_FFT*sizeof(float)); //SETS everything to 0 since resp has a SMALLER length then ifftInputBuf
+	//arm_q7_to_float(resp, ifftInputBuf, respLen);
+
+	/* Weird pointer trick to convert char array back into floats, divide by 4 because each float contains 4 chars */
+	for (int i = 0; i < respLen/4; i++) {
+		ifftInputBuf[i] = ((float*)resp)[i];
+	}
+	/* Now ifftInputBuf should contain the values in resp along with a long string of zeroes  */
+	if (arm_rfft_fast_init_f32(&S_RFFT_F_I, N_FFT) != ARM_MATH_SUCCESS) {
+		printf("ERROR: Couldn't initialize FFT instance \r\n");
+		return;
+	}
+	/* Should multiply ifftInputBuf by scaleFactor */
+	/*
+	scaleFactor = 1/scaleFactor;
+	for (int i = 0; i < N_FFT; i++) {
+		ifftInputBuf[i] *= scaleFactor;
+	}
+	*/
+	/* The last argument to indicate that we want an inverse FFT */
+	arm_rfft_fast_f32(&S_RFFT_F_I, ifftInputBuf, ifftOutputBuf, true);
+	/* STEP 2: Convert into [0, 255]*/
+	/* Find maximum and minimum elements of ifftOutputBuf */
+	/*
+	float min_f = MAXFLOAT;
+	float max_f = -MAXFLOAT;
+	for (int i = 0; i < N_FFT; i++) {
+		float cur = ifftOutputBuf[i];
+		if (cur < min_f)
+			min_f = cur;
+		if (cur > max_f)
+			max_f = cur;
+	}
+	float scalingFactor;
+	if ((max_f - min_f)!= 0) {
+		scalingFactor = (255)/(max_f-min_f);
+	} else {
+		printf("ERROR: Unexpected division by zero in receiveFFTBlock \r\n");
+		return;
+	}
+	*/
+	uint16_t offset = blockIndex*N_FFT;
+	for (int i = 0; i < N_FFT; i++) {
+		play[offset+i] = (int32_t) roundf(ifftOutputBuf[i]);
+	}
+	transformBufferToDAC(play+offset, N_FFT, false);
+
+//	for (int i = 0; i < N_FFT; i++) {
+		/*[minimum, maximum]  ->  [0, maximum-minimum]*/
+//		float cur = ifftOutputBuf[i];
+//		cur = cur - min_f;
+		/*[0, maximum-minimum] -> [0, 255]*/
+//		cur = cur * scalingFactor;
+//		play[offset+i] = (int32_t) roundf(cur);
+//	}
 }
 
 /**
@@ -864,6 +994,10 @@ void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filt
 
 void HAL_DFSDM_FilterRegConvHalfCpltCallback (DFSDM_Filter_HandleTypeDef * hdfsdm_filter) {
 	DFSDM_half_finished = true;
+}
+
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef * hdac) {
+	DAC_finished = true;
 }
 /**
   * @brief  SPI3 line detection callback.
