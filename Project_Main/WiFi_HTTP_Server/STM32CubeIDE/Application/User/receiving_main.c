@@ -2,8 +2,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include <math.h>
-#include "receiving_board_config.h"
 #include "arm_math.h"
+#include "receiving_board_config.h"
 #ifdef RECEIVING_ACTIVE
 #ifdef __ICCARM__
 #include <LowLevelIOInterface.h>
@@ -20,10 +20,10 @@
 #else
 #define LOG(a)
 #endif
+#define N_FFT		1024
 #define SSID_SIZE     100
 #define PASSWORD_SIZE 100
-#define N_FFT 2048
-#define BUFFER_LENGTH 20*N_FFT
+#define BUFFER_LENGTH 40*N_FFT
 #define SENDING_LENGTH 1000
 //Default sampling rate is at 10kHz.
 #define SAMPLING_RATE_FACTOR_DAC 10000
@@ -38,7 +38,6 @@ DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 DMA_HandleTypeDef hdma_dfsdm1_flt0;
 TIM_HandleTypeDef htim2;
-arm_rfft_fast_instance_f32 S_RFFT_F_I;
 #if defined (TERMINAL_USE)
 extern UART_HandleTypeDef hDiscoUart;
 #endif /* TERMINAL_USE */
@@ -51,6 +50,8 @@ int buffer_index = 0;
 
 /** INTERRUPT FLAGS **/
 volatile uint8_t DFSDM_finished = false; // flag
+
+arm_rfft_fast_instance_f32 S_RFFT_F_I;
 
 /* Private function prototypes -----------------------------------------------*/
 #if defined (TERMINAL_USE)
@@ -67,10 +68,11 @@ volatile uint8_t DFSDM_finished = false; // flag
 
 static void SystemClock_Config(void);
 static WIFI_Status_t wifi_process_received_data(void);
+static void receiveFFTBlock(q7_t *resp, uint16_t blockIndex, uint16_t respLen);
+static WIFI_Status_t SendCustomPage(void);
 static int send_receive_confirmation(void);
 static int wifi_wait_data_from_board(void);
 static int wifi_start(void);
-static void receiveFFTBlock(uint16_t blockIndex, uint16_t respLen);
 static void Button_ISR(void);
 /* MX Inits */
 static void MX_DMA_Init(void);
@@ -205,10 +207,10 @@ static WIFI_Status_t wifi_process_received_data() {
 	if (WIFI_STATUS_OK == WIFI_ReceiveData(SOCKET, resp, SENDING_LENGTH, &respLen, WIFI_READ_TIMEOUT)) {
 		if (respLen > 0) {
 			// send_receive_confirmation(); maybe we dont need to send back a confirmation for now
-			printf(" \r\nReceived audio");
+			//printf(" \r\nReceived audio");
+			//printf("%s \r\n  respLen: %d \r\n", resp, respLen);
+			receiveFFTBlock(resp, buffer_index, 500);
 			// need to use uint32_t array
-			/************** CONVERT FFT RECEIVED INTO PROPER uint32_t **************/
-			receiveFFTBlock(buffer_index, respLen);
 			/*
 			for(int i = 0; i < SENDING_LENGTH; i++){
 				play[buffer_index * SENDING_LENGTH + i] = (uint32_t)resp[i];
@@ -217,7 +219,7 @@ static WIFI_Status_t wifi_process_received_data() {
 			printf("\r\nReceived Packet #%d\r\n", buffer_index + 1);
 			buffer_index++;
 
-			if(buffer_index == BUFFER_LENGTH/N_FFT){
+			if(buffer_index == BUFFER_LENGTH/SENDING_LENGTH){
 				buffer_index = 0;
 				HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, BUFFER_LENGTH, DAC_ALIGN_8B_R);
 			}
@@ -235,15 +237,15 @@ static int send_receive_confirmation() {
 	uint16_t SentDataLength;
 	WIFI_Status_t ret;
 	char* http_header = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nPragma: no-cache\r\n\r\n";
-	char* message = "Message received\r\n";
+	char* message = "Message received";
 	strcpy((char *)http, http_header);
 	strcat((char *)http, message);
 	ret = WIFI_SendData(0, (uint8_t *)http, strlen(http), &SentDataLength, WIFI_WRITE_TIMEOUT);
 	if (ret != WIFI_STATUS_OK && (SentDataLength != strlen(http))) {
 		ret = WIFI_STATUS_ERROR;
 	}
-	printf("Request sent out to sending board\r\n: %s", http);
-	memset(http, 0, strlen(http)); // clear the http var after usage
+	//printf("Request sent out to sending board\r\n: %s", http);
+	//memset(http, 0, strlen(http)); // clear the http var after usage
 	return ret;
 }
 
@@ -292,7 +294,7 @@ static int wifi_start(void)
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length) {
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
-		val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
+		//val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
 		// need to map buffer values to 8bit right alligned values (uint8_t)
 		// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
 		const int16_t MAX_VAL = 2000;
@@ -320,37 +322,42 @@ void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length) {
 	}
 }
 
-/**
- * Once a block of audio FFT data has been received (received in q7_t format) in [resp]
- * Convert the q7_t values in resp to float32_t using arm_q7_to_float.
- * Apply inverse FFT
- * Rescale values to be in [0, 255] range and int32_t
- * Store these values in the right place given the blockIndex in the play buffer
- */
-static void receiveFFTBlock(uint16_t blockIndex, uint16_t respLen) {
+static void receiveFFTBlock(q7_t *resp, uint16_t blockIndex, uint16_t respLen) {
 	/* STEP 1: Perform Inverse FFT */
 	float ifftInputBuf[N_FFT];
 	float ifftOutputBuf[N_FFT];
 	memset(ifftInputBuf, 0, N_FFT*sizeof(float)); //SETS everything to 0 since resp has a SMALLER length then ifftInputBuf
-	arm_q7_to_float(resp, ifftInputBuf, respLen);
+	//arm_q7_to_float(resp, ifftInputBuf, respLen);
+
+	/* Weird pointer trick to convert char array back into floats, divide by 4 because each float contains 4 chars */
+	for (int i = 0; i < respLen/4; i++) {
+		ifftInputBuf[i] = ((float*)resp)[i];
+	}
 	/* Now ifftInputBuf should contain the values in resp along with a long string of zeroes  */
 	if (arm_rfft_fast_init_f32(&S_RFFT_F_I, N_FFT) != ARM_MATH_SUCCESS) {
 		printf("ERROR: Couldn't initialize FFT instance \r\n");
 		return;
 	}
+	/* Should multiply ifftInputBuf by scaleFactor */
+	/*
+	scaleFactor = 1/scaleFactor;
+	for (int i = 0; i < N_FFT; i++) {
+		ifftInputBuf[i] *= scaleFactor;
+	}
+	*/
 	/* The last argument to indicate that we want an inverse FFT */
 	arm_rfft_fast_f32(&S_RFFT_F_I, ifftInputBuf, ifftOutputBuf, true);
-
 	/* STEP 2: Convert into [0, 255]*/
 	/* Find maximum and minimum elements of ifftOutputBuf */
+	/*
 	float min_f = MAXFLOAT;
 	float max_f = -MAXFLOAT;
 	for (int i = 0; i < N_FFT; i++) {
 		float cur = ifftOutputBuf[i];
 		if (cur < min_f)
-			cur = min_f;
+			min_f = cur;
 		if (cur > max_f)
-			cur = max_f;
+			max_f = cur;
 	}
 	float scalingFactor;
 	if ((max_f - min_f)!= 0) {
@@ -359,15 +366,21 @@ static void receiveFFTBlock(uint16_t blockIndex, uint16_t respLen) {
 		printf("ERROR: Unexpected division by zero in receiveFFTBlock \r\n");
 		return;
 	}
+	*/
 	uint16_t offset = blockIndex*N_FFT;
 	for (int i = 0; i < N_FFT; i++) {
-		/*[minimum, maximum]  ->  [0, maximum-minimum]*/
-		float cur = ifftOutputBuf[i];
-		cur = cur - min_f;
-		/*[0, maximum-minimum] -> [0, 255]*/
-		cur = cur * scalingFactor;
-		play[offset+i] = (int32_t) roundf(cur);
+		play[offset+i] = (int32_t) roundf(ifftOutputBuf[i]);
 	}
+	transformBufferToDAC(play+offset, N_FFT);
+
+//	for (int i = 0; i < N_FFT; i++) {
+		/*[minimum, maximum]  ->  [0, maximum-minimum]*/
+//		float cur = ifftOutputBuf[i];
+//		cur = cur - min_f;
+		/*[0, maximum-minimum] -> [0, 255]*/
+//		cur = cur * scalingFactor;
+//		play[offset+i] = (int32_t) roundf(cur);
+//	}
 }
 
 /**
@@ -724,7 +737,7 @@ static void Button_ISR(void)
 }
 
 void HAL_TIM_PeriodElapsedCallback (TIM_HandleTypeDef *htim) {
-	//int test;
+	int test;
 }
 /**
  * @brief  This function is executed in case of error occurrence.
