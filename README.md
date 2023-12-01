@@ -1,5 +1,5 @@
 # ECSE-444---Final-Project 
-Repo for the Final Project for ECSE 444 @ McGill University F2023. Video demo can be found here[https://www.youtube.com/watch?v=PtOjv1w0G0o&ab_channel=ChristopherGhosn].
+Repo for the Final Project for ECSE 444 @ McGill University F2023. Video demo can be found [here](https://www.youtube.com/watch?v=PtOjv1w0G0o&ab_channel=ChristopherGhosn).
 
 ## DOCUMENTATION
 
