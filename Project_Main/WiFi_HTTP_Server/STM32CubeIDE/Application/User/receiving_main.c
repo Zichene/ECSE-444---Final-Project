@@ -206,24 +206,14 @@ static WIFI_Status_t wifi_process_received_data() {
 	uint16_t respLen;
 	if (WIFI_STATUS_OK == WIFI_ReceiveData(SOCKET, resp, SENDING_LENGTH, &respLen, WIFI_READ_TIMEOUT)) {
 		if (respLen > 0) {
-			// send_receive_confirmation(); maybe we dont need to send back a confirmation for now
-			//printf(" \r\nReceived audio");
-			//printf("%s \r\n  respLen: %d \r\n", resp, respLen);
 			receiveFFTBlock(resp, buffer_index, 500);
-			// need to use uint32_t array
-			/*
-			for(int i = 0; i < SENDING_LENGTH; i++){
-				play[buffer_index * SENDING_LENGTH + i] = (uint32_t)resp[i];
-			}
-			*/
 			printf("\r\nReceived Packet #%d\r\n", buffer_index + 1);
 			buffer_index++;
-
+			
 			if(buffer_index == BUFFER_LENGTH/SENDING_LENGTH){
 				buffer_index = 0;
 				HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, BUFFER_LENGTH, DAC_ALIGN_8B_R);
 			}
-
 			send_receive_confirmation();
 		}
 		else {
@@ -244,8 +234,6 @@ static int send_receive_confirmation() {
 	if (ret != WIFI_STATUS_OK && (SentDataLength != strlen(http))) {
 		ret = WIFI_STATUS_ERROR;
 	}
-	//printf("Request sent out to sending board\r\n: %s", http);
-	//memset(http, 0, strlen(http)); // clear the http var after usage
 	return ret;
 }
 
@@ -294,9 +282,6 @@ static int wifi_start(void)
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length) {
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
-		//val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
-		// need to map buffer values to 8bit right alligned values (uint8_t)
-		// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
 		const int16_t MAX_VAL = 2000;
 		const int16_t MIN_VAL = -1500;
 		const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
@@ -338,49 +323,15 @@ static void receiveFFTBlock(q7_t *resp, uint16_t blockIndex, uint16_t respLen) {
 		printf("ERROR: Couldn't initialize FFT instance \r\n");
 		return;
 	}
-	/* Should multiply ifftInputBuf by scaleFactor */
-	/*
-	scaleFactor = 1/scaleFactor;
-	for (int i = 0; i < N_FFT; i++) {
-		ifftInputBuf[i] *= scaleFactor;
-	}
-	*/
 	/* The last argument to indicate that we want an inverse FFT */
 	arm_rfft_fast_f32(&S_RFFT_F_I, ifftInputBuf, ifftOutputBuf, true);
+
 	/* STEP 2: Convert into [0, 255]*/
-	/* Find maximum and minimum elements of ifftOutputBuf */
-	/*
-	float min_f = MAXFLOAT;
-	float max_f = -MAXFLOAT;
-	for (int i = 0; i < N_FFT; i++) {
-		float cur = ifftOutputBuf[i];
-		if (cur < min_f)
-			min_f = cur;
-		if (cur > max_f)
-			max_f = cur;
-	}
-	float scalingFactor;
-	if ((max_f - min_f)!= 0) {
-		scalingFactor = (255)/(max_f-min_f);
-	} else {
-		printf("ERROR: Unexpected division by zero in receiveFFTBlock \r\n");
-		return;
-	}
-	*/
 	uint16_t offset = blockIndex*N_FFT;
 	for (int i = 0; i < N_FFT; i++) {
 		play[offset+i] = (int32_t) roundf(ifftOutputBuf[i]);
 	}
 	transformBufferToDAC(play+offset, N_FFT);
-
-//	for (int i = 0; i < N_FFT; i++) {
-		/*[minimum, maximum]  ->  [0, maximum-minimum]*/
-//		float cur = ifftOutputBuf[i];
-//		cur = cur - min_f;
-		/*[0, maximum-minimum] -> [0, 255]*/
-//		cur = cur * scalingFactor;
-//		play[offset+i] = (int32_t) roundf(cur);
-//	}
 }
 
 /**
