@@ -15,7 +15,7 @@
   *
   ******************************************************************************
   */
-//#define SENDING_ACTIVE // Comment/Uncomment this depending on if you are this board as sending/receiving
+
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include <math.h>
@@ -25,14 +25,16 @@
 
 #ifdef SENDING_ACTIVE
 /* Private defines -----------------------------------------------------------*/
+#define TERMINAL_USE
+
+/* WIFI Parameters */
 #define PORT           10 // PORT of this board [sending board]
 #define REMOTE_PORT    80 // PORT Of the receiving board
 #define REMOTE_SOCKET	0 // SOCKET of the receiving board
-#define TERMINAL_USE
-
 #define WIFI_WRITE_TIMEOUT 10000
 #define WIFI_READ_TIMEOUT  10000
-#define SOCKET                 1
+#define SOCKET  1
+/* Other Params */
 #define N_DCT 2048
 #define N_FFT 1024
 #define SENDING_BUFLEN N_FFT
@@ -50,8 +52,6 @@
 #define LOG(a)
 #endif
 
-/* Private typedef------------------------------------------------------------*/
-/* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac1_ch1;
@@ -63,13 +63,12 @@ TIM_HandleTypeDef htim2;
 extern UART_HandleTypeDef hDiscoUart;
 #endif /* TERMINAL_USE */
 
-//static  uint8_t http[1024];
+/* Global variables */
 static  uint8_t  IP_Addr[4];
 static uint8_t RemoteIP_Addr[4]; // address of receiving board
 static int32_t recordingBuffer[RECORDING_BUFLEN];
 static int32_t play[RECORDING_BUFLEN];
 static q7_t sendingBuffer[SENDING_BUFLEN];
-//static float scaleFactor;
 arm_dct4_instance_f32 S_DCT4;
 arm_rfft_instance_f32 S_RFFT;
 arm_cfft_radix4_instance_f32 S_CFFT;
@@ -81,7 +80,6 @@ volatile uint8_t DFSDM_finished=false;
 volatile uint8_t buttonPressed=0;
 volatile uint8_t DAC_finished = false;
 
-/* Private function prototypes -----------------------------------------------*/
 #if defined (TERMINAL_USE)
 #ifdef __GNUC__
 /* With GCC, small printf (option LD Linker->Libraries->Small printf
@@ -92,22 +90,21 @@ volatile uint8_t DAC_finished = false;
 #endif /* __GNUC__ */
 #endif /* TERMINAL_USE */
 
-static void SystemClock_Config(void);
-static int wifi_start(void);
-static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t ip3);
-static int wifi_send_data_to_board(uint8_t* data);
-
-/* MX Inits */
+/* MX Inits & Config functions */
 static void MX_DMA_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_DFSDM1_Init(void);
 static void MX_GPIO_Init(void);
+static void SystemClock_Config(void);
 
 /* Private functions ---------------------------------------------------------*/
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t shift);
 void computeFFTBlock(uint16_t blockIndex);
 static void receiveFFTBlock(q7_t *resp, uint16_t blockIndex, uint16_t respLen);
+static int wifi_start(void);
+static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t ip3);
+static int wifi_send_data_to_board(uint8_t* data);
 /**
   * @brief  Main program
   * @param  None
@@ -130,12 +127,8 @@ int main(void)
   MX_TIM2_Init();
   MX_DFSDM1_Init();
   MX_GPIO_Init();
+  HAL_TIM_Base_Start_IT(&htim2); 
 
-
-  //HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-  HAL_TIM_Base_Start_IT(&htim2); // the _IT at the end of fn. means interrupt
-
-  /* WIFI Web Server demonstration */
 #if defined (TERMINAL_USE)
   /* Initialize all configured peripherals */
   hDiscoUart.Instance = DISCOVERY_COM1;
@@ -148,8 +141,6 @@ int main(void)
   hDiscoUart.Init.OverSampling = UART_OVERSAMPLING_16;
   hDiscoUart.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   hDiscoUart.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-
-
   BSP_COM_Init(COM1, &hDiscoUart);
 
   /* resetting buffers */
@@ -157,127 +148,48 @@ int main(void)
   memset(sendingBuffer, 0, SENDING_BUFLEN);
 
   printf("****** SENDING BOARD Initiating ****** \r\n");
-  /* Initializing DCT-4 */
-  /*
-  if (arm_dct4_init_f32(&S_DCT4, &S_RFFT, &S_CFFT, N_DCT, N_DCT/2, 0.03125) != ARM_MATH_SUCCESS) {
-	  printf("Could not initiate DCT4 \r\n");
-	  return -1;
-  }
-  */
 
   /* Initializing FFT */
   if (arm_rfft_fast_init_f32(&S_RFFT_F, N_FFT) != ARM_MATH_SUCCESS) {
 	  printf("Could not initiate FFT \r\n");
 	  return -1;
   }
+#endif /* TERMINAL_USE */
 
+/* Trying to connect to board */
+while(wifi_connect_to_board(REMOTE_IP_0, REMOTE_IP_1, REMOTE_IP_2, REMOTE_IP_3) != WIFI_STATUS_OK) {
+  printf("Retrying to connect to board ... \r\n");
+}
+printf("Connected to other board. \r\n");
 
-  /************* TESTING FOR DCT4 **********************/
-  /*
-
-  if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, RECORDING_BUFLEN) != HAL_OK) {
-	  printf("Failed to start DFSDM\r\n");
+/* Main button press loop */
+  while (true) {
+  printf("Waiting for button press to send mic data.\r\n");
+  while(buttonPressed==false){
+    __WFI(); // Waiting for interrupt mode?
   }
+  buttonPressed = false;
+
+  /* Start microphone audio capture */
+    if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, RECORDING_BUFLEN) != HAL_OK) {
+      printf("Failed to start DFSDM\r\n");
+    }
   while (!DFSDM_finished) {
   }
   DFSDM_finished = false;
   HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); //  this is necessary
-  memcpy(play, recordingBuffer, RECORDING_BUFLEN);
 
-  // go thru every block
-  // convert original signal to DAC
-  transformBufferToDAC(play, RECORDING_BUFLEN, true);
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
-	  printf("Failed to start DAC");
-  }
-  while(!DAC_finished) {
-  }
-  DAC_finished = false;
-  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-  for (int blockIdx = 0; blockIdx < RECORDING_BUFLEN/N_FFT; blockIdx++) {
-	  computeFFTBlock(blockIdx);
-	  // sendingBuffer will contain result of computeFFTBlock
-	  receiveFFTBlock(sendingBuffer, blockIdx, 500); // ASSUME THAT 500 is the maximum length containing information
-  }
-  */
-  /*
-  printf("------------------ AFTER FFT ------------------------");
-  for (int i = 0; i < RECORDING_BUFLEN; i++) {
-	  printf("%d ", play[i]);
-  }
-  */
-  // play
-  /*
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, play, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
-	  printf("Failed to start DAC");
-  }
-  //HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-
-  while(true) {
-
-  }
-  */
-#endif /* TERMINAL_USE */
-
-
-	while(wifi_connect_to_board(REMOTE_IP_0, REMOTE_IP_1, REMOTE_IP_2, REMOTE_IP_3) != WIFI_STATUS_OK) {
-		printf("Retrying to connect to board ... \r\n");
-	}
-	// successfully connected to board
-	printf("Connected to other board. \r\n");
-	//wifi_send_data_to_board("test");
-
-    while (true) {
-    printf("Waiting for button press to send mic data.\r\n");
-    while(buttonPressed==false){
-    	__WFI(); // Waiting for interrupt mode?
+  /* Go thru each block, convert to FFT & send to wifi*/
+  printf("Sending audio to other board \r\n");
+  uint16_t step = RECORDING_BUFLEN/SENDING_BUFLEN;
+  for (int blockIndex = 0 ; blockIndex < step; blockIndex++) {
+    computeFFTBlock(blockIndex);
+    if(wifi_send_data_to_board((uint8_t*)sendingBuffer) == WIFI_STATUS_OK) {
+      printf("Sent packet %d\r\n", blockIndex);
     }
-    buttonPressed = false;
-   // while (buttonPressed == false) {
-    	// IF YOU WANT TO USE THE HALF_FINISHED THING U HAVE TO SET DMA TO CIRCULAR IN hal_msp.c
-    	if (HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, recordingBuffer, RECORDING_BUFLEN) != HAL_OK) {
-    	  printf("Failed to start DFSDM\r\n");
-    	}
-    	/*
-		while (!DFSDM_half_finished) {
-		}
-		// need to transform only first half
-		printf("DFSDM half finished, sending first half of buffer");
-		DFSDM_half_finished = false;
-		transformBufferToDAC(recordingBuffer, VOICE_BUFLEN/2, sendingBuffer);
-		HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, VOICE_BUFLEN/2, DAC_ALIGN_8B_R);
-		//wifi_send_data_to_board(sendingBuffer);
-		 */
-		while (!DFSDM_finished) {
-		}
-
-		DFSDM_finished = false;
-		HAL_DFSDM_FilterRegularStop_DMA(&hdfsdm1_filter0); //  this is necessary
-		/* Need to transform only the last half*/
-		/*
-		transformBufferToDAC(&(recordingBuffer[VOICE_BUFLEN/2]), VOICE_BUFLEN/2, sendingBuffer);
-		HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, &(recordingBuffer[VOICE_BUFLEN/2]), VOICE_BUFLEN/2, DAC_ALIGN_8B_R);
-		wifi_send_data_to_board(sendingBuffer);
-		*/
-		/* test playback on this board */
-		//transformBufferToDAC(recordingBuffer,RECORDING_BUFLEN, sendingBuffer);
-		/*
-		if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, recordingBuffer, RECORDING_BUFLEN, DAC_ALIGN_8B_R) != HAL_OK) {
-		  printf("Failed to start DAC");
-		}
-		*/
-		printf("Sending audio to other board \r\n");
-		uint16_t step = RECORDING_BUFLEN/SENDING_BUFLEN;
-		for (int blockIndex = 0 ; blockIndex < step; blockIndex++) {
-			// convert block
-			computeFFTBlock(blockIndex);
-			if(wifi_send_data_to_board((uint8_t*)sendingBuffer) == WIFI_STATUS_OK) {
-				printf("Sent packet %d\r\n", blockIndex);
-			}
-		}
-   // }
-    buttonPressed = false;
   }
+  buttonPressed = false;
+}
 }
 
 /**
@@ -285,52 +197,32 @@ int main(void)
  */
 static int wifi_send_data_to_board(uint8_t* data) {
 	// first try to connect to the board
-
     if (WIFI_OpenClientConnection(REMOTE_SOCKET, WIFI_TCP_PROTOCOL, "test", RemoteIP_Addr, REMOTE_PORT, PORT) != WIFI_STATUS_OK) {
     	printf("Could not connect to other board \r\n");
     	return -1;
     }
-
     printf("Connected to other board\r\n");
-	//char* http_header = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n";
-    //strcat(http_header, data);
-
     uint16_t actualSent;
-    /*
-    for (int i = 0; i < 20; i++) {
-    	if (WIFI_SendData(REMOTE_SOCKET, &(data[i*1000]), SENDING_BUFLEN, &actualSent, WIFI_WRITE_TIMEOUT) == WIFI_STATUS_OK) {
-			printf("Sent packet %d \r\n", i);
-			//memset(data, 0, strlen(data));
-			return -1;
-    	}
-    }
-    */
+
 	if (WIFI_SendData(REMOTE_SOCKET,data, SENDING_BUFLEN_COMPRESSED, &actualSent, WIFI_WRITE_TIMEOUT) != WIFI_STATUS_OK) {
 		printf("Could not send data \r\n");
 		//memset(data, 0, strlen(data));
 		return -1;
 	}
 	printf("Data sent: %d\r\n", actualSent);
-
-    //memset(data, 0, strlen(data)); // maybe we can remove this
     // wait for resp from receiving board before proceeding
     uint8_t resp[100];
     memset(resp, 0, strlen((char*)resp));
     uint16_t actualReceived;
-
     while(WIFI_ReceiveData(REMOTE_SOCKET, resp, 100, &actualReceived, WIFI_READ_TIMEOUT) != WIFI_STATUS_OK) {
-
     }
     printf("Received response from receiving board: %s\r\n", resp);
-
     // close connection
-
     if (WIFI_CloseClientConnection(REMOTE_SOCKET) != WIFI_STATUS_OK) {
     	printf("Could not close client connection \r\n");
     	return -1;
     }
     printf("Closed client connection \r\n");
-
     return WIFI_STATUS_OK;
 }
 /**
@@ -344,8 +236,6 @@ static int wifi_send_data_to_board(uint8_t* data) {
 static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t ip3) {
 	// start wifi module
 	wifi_start();
-
-
 	// connect to existing AP
 	if (WIFI_Connect(SSID, PASSWORD, SECURITY) == WIFI_STATUS_OK)
 	{
@@ -368,13 +258,11 @@ static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t 
 	   LOG(("ERROR : es-wifi module NOT connected\r\n"));
 	   return -1;
 	}
-	// start server (?)
-
+	// start server 
 	if (WIFI_STATUS_OK != WIFI_StartServer(SOCKET, WIFI_TCP_PROTOCOL, 1, "", PORT)) {
 		printf("ERROR: Could not start server \r\n");
 		return -1;
 	}
-
 	// trying to connect to other board using IP addr
     RemoteIP_Addr[0] = ip0;
     RemoteIP_Addr[1] = ip1;
@@ -384,14 +272,11 @@ static int wifi_connect_to_board(uint8_t ip0, uint8_t ip1, uint8_t ip2, uint8_t 
     	printf("Could not connect to other board \r\n");
     	return -1;
     }
-
-    // we need to disconnect at the end since we will be reconnecting to send data
     // close connection
     if (WIFI_CloseClientConnection(REMOTE_SOCKET) != WIFI_STATUS_OK) {
     	printf("Could not close client connection \r\n");
     	return -1;
     }
-
     return WIFI_STATUS_OK;
 }
 
@@ -434,18 +319,17 @@ static int wifi_start(void)
 }
 
 /**
- * Transforms a buffer's values into valid DAC 8bit right aligned values
+ * Transforms a buffer's values into valid DAC 8bit right aligned values. The third parameter is a boolean indicating whether or
+ * not to shift the values of the buffer 8 to the right.
  */
 void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uint8_t shift) {
-	// need to map buffer values to 8bit right alligned values (uint8_t)
-	// from experimentation (screaming at the board): min values tend to be -3000 and max seems to be ~1000
 	const int16_t MAX_VAL = 1000;
 	const int16_t MIN_VAL = -3000;
 	const float a = (255.0)/(MAX_VAL - MIN_VAL); // slope
 	for (int i = 0; i < recording_buffer_length; i++) {
 		int32_t val = buffer[i]; // 24-bit value
 		if (shift)
-			val = val >> 8; // remove this for LOUDER but MORE SCUFFED NOISE
+			val = val >> 8; 
 		// clip buffer values to within [-MIN_VAL, MAX_VAL]
 		if (val <= MIN_VAL) {
 			val = MIN_VAL;
@@ -468,7 +352,7 @@ void transformBufferToDAC(int32_t *buffer, uint32_t recording_buffer_length, uin
 }
 
 /**
- * Compute 2048 Point FFT on a block (given by blockIndex) of the recordingBuffer.
+ * Compute 1024 Point FFT on a block (given by blockIndex) of the recordingBuffer.
  * Filters out low magnitude freq. components (< FFT_THRESHOLD_MAG)
  * Transforms resulting FFT buffer into char array to be sent by Wi-Fi.
  */
@@ -484,43 +368,15 @@ void computeFFTBlock(uint16_t blockIndex) {
 	}
 	float fftInBuffer[N_FFT];
 	float fftOutBuffer[N_FFT];
-	//float dctCoeffs[N_DCT];
-	//float pState[S_DCT4->N]; // this array serves as "cache" for the function DCT4
 	uint16_t offset = blockIndex*SENDING_BUFLEN;
-	// converting the recordingBuffer into floats (first 2048 elements)
-	/*
-	int32_t min = INT_MAX;
-	int32_t max = INT_MIN;
-	for (int i = 0; i < N_FFT; i++) {
-		int32_t cur = recordingBuffer[offset+i] >> 8;
-		if (cur < min)
-			min = cur;
-		if (cur > max)
-			max = cur;
-	}
-	// now want to scale [min, max] to [-1, 1]
-	// first scale [min, max] to [0, 2] and then subtract 1 from everything
-	float scaleFactor = (2)/((float)max - (float)min);
-	for (int i = 0; i < N_FFT; i++) {
-		// subtract min from everything
-		float cur = (recordingBuffer[offset+i]>>8)-min;
-		cur = scaleFactor*cur;
-		cur--;
-		fftInBuffer[i] = cur;
-		//printf("%f ", cur);
-	}
-	*/
+	
 	for (int i = 0; i < N_FFT; i++) {
 		fftInBuffer[i] = (float) (recordingBuffer[offset+i]>>8);
-		//printf("%d ", (recordingBuffer[offset+i]>>8));
 	}
 
 	// apply FFT
 	arm_rfft_fast_f32(&S_RFFT_F, fftInBuffer, fftOutBuffer, 0);
-	/*
-	float min_f = MAXFLOAT;
-	float max_f = -MAXFLOAT;
-	*/
+
 	// get rid of components whose amplitude is not very high
 	for (int index = 0; index < N_FFT; index+=2) {
 		float curReal = fftOutBuffer[index];
@@ -530,80 +386,13 @@ void computeFFTBlock(uint16_t blockIndex) {
 			fftOutBuffer[index] = 0;
 			fftOutBuffer[index+1] = 0;
 		}
-		// check for max & min
-		/*
-		if (curReal < min_f)
-			min_f = curReal;
-		if (curIm < min_f)
-			min_f = curIm;
-		if (curReal > max_f)
-			max_f = curReal;
-		if (curIm > max_f)
-			max_f = curIm;
-		*/
 	}
+
 	/* Weird pointer trick to store floats inside of a char array, this is needed for wifi */
 	for (int i = 0; i < SENDING_BUFLEN; i++) {
 		sendingBuffer[i] = ((uint8_t*)fftOutBuffer)[i];
 	}
-	/*
-	float *pSendingBufFloat = sendingBuffer;
-	float pfftOut_V2[N_FFT];
-	for (int i = 0; i < SENDING_BUFLEN; i++) {
-		pfftOut_V2[i] = ((float*)sendingBuffer)[i];
-	}
-	*/
-	//sendingBuffer = fftOutBuffer;
-	/*
-	// find abs val of max_f and min_f
-	max_f = max_f > 0 ? max_f : -1*max_f;
-	min_f = min_f > 0 ? min_f : -1*min_f;
-	// make sure scalefactor != 0
-	if (min_f == 0) {
-		scaleFactor = 1/max_f;
-	} else if (max_f == 0) {
-		scaleFactor = 1/min_f;
-	} else {
-		scaleFactor = max_f > min_f ? 1/max_f : 1/min_f;
-	}
-
-	//printf("-------------------- AFTER FFT - FLOAT ---------------------");
-	for (int i = 0; i<SENDING_BUFLEN; i++) {
-		//printf("%f ", fftOutBuffer[i]);
-		fftOutBuffer[i] *= scaleFactor;
-		//printf("%f ", fftOutBuffer[i]);
-	}
-	// converts to q7_t == int8_t
-	//arm_float_to_q15(fftOutBuffer, sendingBuffer, SENDING_BUFLEN);
-
-	/*
-	printf("-------------------- CONVERTED TO Q7_T ---------------------");
-	for (int i = 0; i<SENDING_BUFLEN; i++) {
-		printf("%d ", sendingBuffer[i]);
-	}
-	*/
-
-	printf("\r\n Length of fftOutBuffer for index %d: %d\r\n", blockIndex, strlen((char*)sendingBuffer));
-
-	/****************** HOW TO CONVERT BACK FROM Q7 BUFFER TO FLOAT *************************/
-
-
-	//arm_q7_to_float(sendingBuffer, fftInBuffer, SENDING_BUFLEN);
-	/*
-	printf("-------------------- CONVERTED BACK TO FLOAT ---------------------");
-	scaleFactor = 1/scaleFactor;
-	for (int i = 0; i<SENDING_BUFLEN; i++) {
-		printf("%f ", fftInBuffer[i]);
-		fftInBuffer[i] *= scaleFactor;
-	}
-	// inverse FFT
-	arm_rfft_fast_f32(&S_RFFT_F_I, fftInBuffer, fftOutBuffer, 1);
-	printf("-------------- AFTER IFFT ------------------ \r\n");
-	for (int i = 0; i < N_FFT; i++) {
-		printf("%f ", fftOutBuffer[i]);
-	}
-	*/
-
+	// printf("\r\n Length of fftOutBuffer for index %d: %d\r\n", blockIndex, strlen((char*)sendingBuffer));
 }
 
 /**
@@ -618,60 +407,27 @@ static void receiveFFTBlock(q7_t *resp, uint16_t blockIndex, uint16_t respLen) {
 	float ifftInputBuf[N_FFT];
 	float ifftOutputBuf[N_FFT];
 	memset(ifftInputBuf, 0, N_FFT*sizeof(float)); //SETS everything to 0 since resp has a SMALLER length then ifftInputBuf
-	//arm_q7_to_float(resp, ifftInputBuf, respLen);
 
 	/* Weird pointer trick to convert char array back into floats, divide by 4 because each float contains 4 chars */
 	for (int i = 0; i < respLen/4; i++) {
 		ifftInputBuf[i] = ((float*)resp)[i];
 	}
+  
 	/* Now ifftInputBuf should contain the values in resp along with a long string of zeroes  */
 	if (arm_rfft_fast_init_f32(&S_RFFT_F_I, N_FFT) != ARM_MATH_SUCCESS) {
 		printf("ERROR: Couldn't initialize FFT instance \r\n");
 		return;
 	}
-	/* Should multiply ifftInputBuf by scaleFactor */
-	/*
-	scaleFactor = 1/scaleFactor;
-	for (int i = 0; i < N_FFT; i++) {
-		ifftInputBuf[i] *= scaleFactor;
-	}
-	*/
+	
 	/* The last argument to indicate that we want an inverse FFT */
 	arm_rfft_fast_f32(&S_RFFT_F_I, ifftInputBuf, ifftOutputBuf, true);
+
 	/* STEP 2: Convert into [0, 255]*/
-	/* Find maximum and minimum elements of ifftOutputBuf */
-	/*
-	float min_f = MAXFLOAT;
-	float max_f = -MAXFLOAT;
-	for (int i = 0; i < N_FFT; i++) {
-		float cur = ifftOutputBuf[i];
-		if (cur < min_f)
-			min_f = cur;
-		if (cur > max_f)
-			max_f = cur;
-	}
-	float scalingFactor;
-	if ((max_f - min_f)!= 0) {
-		scalingFactor = (255)/(max_f-min_f);
-	} else {
-		printf("ERROR: Unexpected division by zero in receiveFFTBlock \r\n");
-		return;
-	}
-	*/
 	uint16_t offset = blockIndex*N_FFT;
 	for (int i = 0; i < N_FFT; i++) {
 		play[offset+i] = (int32_t) roundf(ifftOutputBuf[i]);
 	}
 	transformBufferToDAC(play+offset, N_FFT, false);
-
-//	for (int i = 0; i < N_FFT; i++) {
-		/*[minimum, maximum]  ->  [0, maximum-minimum]*/
-//		float cur = ifftOutputBuf[i];
-//		cur = cur - min_f;
-		/*[0, maximum-minimum] -> [0, 255]*/
-//		cur = cur * scalingFactor;
-//		play[offset+i] = (int32_t) roundf(cur);
-//	}
 }
 
 /**
