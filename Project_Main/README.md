@@ -1,6 +1,6 @@
 # DOCUMENTATION
 
-This folder contains **all the files** for the STM32CubeIDE project that implements Wi-Fi, DFSDM & DAC compatibility at the same time. 
+This folder contains **all the files** for the STM32CubeIDE project that implements Wi-Fi, DFSDM & DAC, and filtering compatibility at the same time. 
 See `Getting DFSDM in WiFi.pdf` for rough steps on how DFSDM & DAC was added to the example Wi-Fi project without using MXCube (IOC file).
 
 
@@ -28,24 +28,21 @@ host_ip = 10.0.0.215      # this field is only relevant for the sending board, a
    
 7. You can now run the project in STM32CubeIDE!
 
-## TODO
-- Make the sound received actually sound decent
-- Audio compression
-- Optimization
-
 ## SENDING BOARD FUNCTIONALITY
 - On startup, the sending board connects to a network with credentials `ssid, password, ecn` stored in code. Modify them if your network changes.
 - A server is created using `SOCKET = 1, PORT = 10`; these values are also stored in the main file. These settings **SHOULD NOT** change during the course of the project.
 - The sending board now attempts to connect to the receiving board after being provided with the right IP address of the receiving board (you need to manually enter this). The parameters of the function `wifi_connect_to_board()` are values for the IP address of the receiving board.
 - Now, we can send data to the receiving board using the function `wifi_send_data_to_board(char* data)`. Every data request sent to the receiver board will be responded to: we can see this response in the UART of the sending board.
-- The board will wait for the blue button (user button) to be pressed, after which it will start to collect microphone data and put it in the buffer. Then, the values will be converted to 8-bit (char) values which are sent over Wi-Fi to the other board (using `wifi_connect_to_board()`).
-- This process loops until the button is pressed again.
+- The board will wait for the blue button (user button) to be pressed, after which it will start to collect microphone data for 4 seconds and put it in the buffer.
+- Then, the `arm_fir_f32()` function from the CMSIS Library is used to filter sounds above a frequency of 500 Hz.
+- Then, the values will be converted to 8-bit (char) values which are sent over Wi-Fi to the other board (using `wifi_connect_to_board()`).
+- After all of the audio data is sent, we wait for a new button press to send new audio data.
 
   
 ## RECEIVING BOARD FUNCTIONALITY
 - On startup, the receiving board connects to a network with credentials `ssid, password, ecn` stored in code. Modify them if your network changes.
 - A server is created using `SOCKET = 0, PORT = 80`; these values are also stored in the main file. These settings **SHOULD NOT** change during the course of the project.
 - We wait for a client to connect (the SENDING BOARD).
-- Once connected, we wait for audio data to be sent. When the audio data arrives, it is converted to 32-bit values so that it can be played via the DAC speaker.
+- Once connected, we wait for audio data to be sent. When the filtered audio data arrives, it is converted to 32-bit values so that it can be played via the DAC speaker.
 - We close the connection and wait for the client to connect again.
 
