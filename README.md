@@ -1,13 +1,5 @@
 # ECSE-444---Final-Project 
-Repo for the Final Project for ECSE 444
-
-## IMPORTANT
-- For now this repository only contains the main.c files, which are to be copied into (and replace the existing main files) the WiFi example folder in the STM32CubeIDE repository folder (see DOCUMENTATION below).
-- Currently gitignore is set to ignore all files except .c, .h, .s, .py, .ioc, .html, .txt, .tex, .pdf, .png, .exe, .cfg files. If you wish to change this, feel free to modify the .gitignore to include other files. This is so that we only focus on the important files of the project.
-
-### TODO
-- Test latency for sending/receiving data between boards
-- Implement rest of features
+Repo for the Final Project for ECSE 444 @ McGill University F2023. Video demo can be found [here](https://www.youtube.com/watch?v=PtOjv1w0G0o&ab_channel=ChristopherGhosn).
 
 ## DOCUMENTATION
 
@@ -19,7 +11,5 @@ Boards used can be found at: https://www.st.com/en/evaluation-tools/b-l4s5i-iot0
 
 Note: The wifi component of this project was based from an example project downloaded from the STM32CubeIDE repository folder, specifically the file path should look like this (after downloading STM32CubeIDE): `C:\Users<name>\STM32Cube\Repository\STM32Cube_FW_L4_V1.18.0\Projects\B-L4S5I-IOT01A\Applications\WiFi`
 
-## Links
-- Proposal Google Docs: https://docs.google.com/document/d/1_Vil0bpvTTfFVEeQeM1tbq3TkEXOZylY-xVfDCFg2Fo/edit?usp=sharing
-- Proposal Official (Overleaf): https://www.overleaf.com/7336791323fcbdjyqzjfsm#9a69bd
+
 
