@@ -3,7 +3,7 @@ Repo for the Final Project for ECSE 444 @ McGill University F2023. Video demo ca
 
 ## DOCUMENTATION
 
-Two STM32 B-L4S5I-IOT01A boards will send compressed audio data over Wi-Fi. One board will act as the sending board, this board will interface with the DFSDM microphones on board to capture audio data. The other board will be receiving this data via an HTTP request, decompressing it and will use the on-board DAC module to generate a sound via a connected speaker. 
+Two STM32 B-L4S5I-IOT01A boards will send filtered audio data over Wi-Fi. One board will act as the sending board, this board will interface with the DFSDM microphones on board to capture audio data and filter it. The other board will be receiving this data via an HTTP request, it and will use the on-board DAC module to generate a sound via a connected speaker. 
 
 
 Boards used can be found at: https://www.st.com/en/evaluation-tools/b-l4s5i-iot01a.html
