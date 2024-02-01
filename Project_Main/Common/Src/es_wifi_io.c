@@ -13,21 +13,7 @@
   *
   * This software is licensed under terms that can be found in the LICENSE file
   * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-
-/* Includes ------------------------------------------------------------------*/
-#include "es_wifi.h"
-#include "es_wifi_io.h"
-#include <string.h>
-#include "es_wifi_conf.h"
-#include <core_cm4.h>
-
-/* Private define ------------------------------------------------------------*/
-#define MIN(a, b)  ((a) < (b) ? (a) : (b))
-/* Private typedef -----------------------------------------------------------*/
+  * If no-----------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi;
